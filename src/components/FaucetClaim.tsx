@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
+import { Turnstile, type TurnstileInstance } from '@marsidev/react-turnstile';
 import AdBanner from './AdBanner';
 
 const REWARD = '0.0001';
@@ -10,11 +11,13 @@ const COOLDOWN_MS = 300_000;
 type MessageType = 'success' | 'error' | 'info';
 
 export default function FaucetClaim({ address }: { address: string }) {
+  const turnstileRef = useRef<TurnstileInstance>(null);
   const [countdown, setCountdown] = useState(0);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
   const [messageType, setMessageType] = useState<MessageType>('info');
   const [balance, setBalance] = useState<number | null>(null);
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
 
   useEffect(() => {
     const stored = localStorage.getItem(`cooldown_${address}`);
@@ -46,10 +49,14 @@ export default function FaucetClaim({ address }: { address: string }) {
       const res = await fetch('/api/claim', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ address }),
+        body: JSON.stringify({ address, turnstileToken }),
       });
 
       const data = await res.json();
+
+      // Reset Turnstile widget for next attempt
+      turnstileRef.current?.reset();
+      setTurnstileToken(null);
 
       if (!res.ok) {
         const errorText = data.error || 'Something went wrong.';
@@ -62,6 +69,8 @@ export default function FaucetClaim({ address }: { address: string }) {
       localStorage.setItem(`cooldown_${address}`, String(Date.now()));
       setCountdown(COOLDOWN_MS);
     } catch {
+      turnstileRef.current?.reset();
+      setTurnstileToken(null);
       showMessage('❌ Network error. Check your connection.', 'error');
     } finally {
       setLoading(false);
@@ -70,7 +79,7 @@ export default function FaucetClaim({ address }: { address: string }) {
 
   const minutes = String(Math.floor(countdown / 60000)).padStart(2, '0');
   const seconds = String(Math.floor((countdown % 60000) / 1000)).padStart(2, '0');
-  const canClaim = countdown <= 0 && !loading;
+  const canClaim = countdown <= 0 && !loading && !!turnstileToken;
 
   const messageStyles = {
     success: 'bg-green-100 border-green-300 text-green-800',
@@ -93,6 +102,13 @@ export default function FaucetClaim({ address }: { address: string }) {
             Reward: {REWARD} {CURRENCY} per claim
           </p>
         </div>
+
+        <Turnstile
+          ref={turnstileRef}
+          siteKey="0x4AAAAAAD5kW6zX8NLmEIT1"
+          onSuccess={(token) => setTurnstileToken(token)}
+          options={{ theme: 'light', size: 'flexible' }}
+        />
 
         <button
           onClick={claim}

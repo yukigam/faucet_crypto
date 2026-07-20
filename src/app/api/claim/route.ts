@@ -2,18 +2,40 @@ import { NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 
 const FAUCETPAY_API = 'https://faucetpay.io/api/v1/send';
+const TURNSTILE_VERIFY = 'https://challenges.cloudflare.com/turnstile/v0/siteverify';
 const SATOSHI_AMOUNT = '10000';
 const DECIMAL_AMOUNT = '0.0001';
 const CURRENCY = 'TON';
 
-const COOLDOWN_MINUTES = 0; // 0 = no cooldown for testing
+const COOLDOWN_MINUTES = 0;
 
 export async function POST(request: Request) {
   try {
-    const { address } = await request.json();
+    const { address, turnstileToken } = await request.json();
 
     if (!address || typeof address !== 'string') {
       return NextResponse.json({ error: 'FaucetPay address is required' }, { status: 400 });
+    }
+
+    // Verify Turnstile captcha
+    if (!turnstileToken || typeof turnstileToken !== 'string') {
+      return NextResponse.json({ success: false, error: 'Captcha verification failed' }, { status: 400 });
+    }
+
+    const verifyForm = new URLSearchParams();
+    verifyForm.append('secret', process.env.TURNSTILE_SECRET_KEY ?? '');
+    verifyForm.append('response', turnstileToken);
+
+    const verifyRes = await fetch(TURNSTILE_VERIFY, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: verifyForm.toString(),
+    });
+
+    const verifyData: { success: boolean } = await verifyRes.json();
+
+    if (!verifyData.success) {
+      return NextResponse.json({ success: false, error: 'Captcha verification failed' }, { status: 400 });
     }
 
     const apiKey = process.env.FAUCETPAY_API_KEY;
@@ -31,7 +53,7 @@ export async function POST(request: Request) {
       cookies: { getAll: () => [], setAll: () => {} },
     });
 
-    // 1. Check cooldown (read-only, do NOT record yet)
+    // Check cooldown (read-only, do NOT record yet)
     if (COOLDOWN_MINUTES > 0) {
       const { data: existing } = await supabase
         .from('claimants')
@@ -47,7 +69,7 @@ export async function POST(request: Request) {
       }
     }
 
-    // 2. Build and send FaucetPay request
+    // Build and send FaucetPay request
     const fpForm = new URLSearchParams();
     fpForm.append('api_key', apiKey);
     fpForm.append('to', address);
@@ -68,7 +90,7 @@ export async function POST(request: Request) {
 
     const rawText = await fpRes.text();
 
-    // 3. Parse FaucetPay response
+    // Parse FaucetPay response
     let fpData: Record<string, unknown>;
     try {
       fpData = JSON.parse(rawText);
@@ -83,7 +105,7 @@ export async function POST(request: Request) {
 
     console.log('[CLAIM] FaucetPay full response:', JSON.stringify(fpData, null, 2));
 
-    // 4. If FaucetPay failed, return the EXACT error to the frontend
+    // If FaucetPay failed, return the EXACT error to the frontend
     if (fpData.status !== 200) {
       const exactError =
         (fpData as any).html_entity_decode ||
@@ -99,7 +121,7 @@ export async function POST(request: Request) {
       }, { status: 502 });
     }
 
-    // 5. FaucetPay succeeded — NOW record the claim in Supabase
+    // FaucetPay succeeded — NOW record the claim in Supabase
     const now = new Date().toISOString();
     const { data: dbResult, error: dbError } = await supabase.rpc('faucet_claim', {
       p_address: address,
@@ -109,7 +131,6 @@ export async function POST(request: Request) {
 
     if (dbError) {
       console.error('[CLAIM] DB record error after successful FaucetPay:', dbError);
-      // Payment went through but DB failed — still return success to user
     }
 
     const balance = (dbResult as any)?.balance ?? null;
