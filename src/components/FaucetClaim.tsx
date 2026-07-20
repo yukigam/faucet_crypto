@@ -1,40 +1,23 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
-import { createClient } from '@/lib/supabase';
-import { useAuth } from '@/contexts/AuthContext';
+import { useEffect, useState } from 'react';
+import AdBanner from './AdBanner';
 
-interface FaucetRow {
-  balance: number;
-  last_claim_at: string | null;
-}
+const COOLDOWN_MS = 300_000;
 
-export default function FaucetClaim() {
-  const supabase = createClient();
-  const { user } = useAuth();
-  const [balance, setBalance] = useState<number>(0);
-  const [countdown, setCountdown] = useState<number>(0);
+export default function FaucetClaim({ address }: { address: string }) {
+  const [countdown, setCountdown] = useState(0);
   const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState('');
+  const [balance, setBalance] = useState<number | null>(null);
 
-  const fetchClaims = useCallback(async () => {
-    if (!user) return;
-
-    const { data } = await supabase
-      .from('faucet_claims')
-      .select('balance, last_claim_at')
-      .eq('user_id', user.id)
-      .single<FaucetRow>();
-
-    if (data) {
-      setBalance(data.balance);
-      if (data.last_claim_at) {
-        const elapsed = Date.now() - new Date(data.last_claim_at).getTime();
-        setCountdown(Math.max(0, 300_000 - elapsed));
-      }
+  useEffect(() => {
+    const stored = localStorage.getItem(`cooldown_${address}`);
+    if (stored) {
+      const elapsed = Date.now() - Number(stored);
+      setCountdown(Math.max(0, COOLDOWN_MS - elapsed));
     }
-  }, [supabase, user]);
-
-  useEffect(() => { fetchClaims(); }, [fetchClaims]);
+  }, [address]);
 
   useEffect(() => {
     if (countdown <= 0) return;
@@ -43,34 +26,43 @@ export default function FaucetClaim() {
   }, [countdown]);
 
   const claim = async () => {
-    if (!user) return;
-
     setLoading(true);
-    const now = new Date().toISOString();
+    setMessage('');
 
-    const { error } = await supabase.rpc('claim_faucet', {
-      p_user_id: user.id,
-      p_claimed_at: now,
-    });
+    try {
+      const res = await fetch('/api/claim', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ address }),
+      });
 
-    if (error) {
-      if (error.message.includes('cooldown')) {
-        const { data } = await supabase
-          .from('faucet_claims')
-          .select('last_claim_at')
-          .eq('user_id', user.id)
-          .single<FaucetRow>();
-        if (data?.last_claim_at) {
-          const remaining = 300_000 - (Date.now() - new Date(data.last_claim_at).getTime());
-          setCountdown(Math.max(0, remaining));
+      const data = await res.json();
+
+      if (!res.ok) {
+        if (res.status === 429) {
+          setMessage('Please wait 5 minutes between claims.');
+        } else {
+          setMessage(data.error || 'Something went wrong.');
         }
+        return;
       }
-    } else {
-      setBalance((b) => b + 0.001);
-      setCountdown(300_000);
+
+      setBalance(data.balance);
+      setMessage(data.message || 'Coins sent!');
+      localStorage.setItem(`cooldown_${address}`, String(Date.now()));
+      setCountdown(COOLDOWN_MS);
+    } catch {
+      setMessage('Network error. Try again.');
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
+
+  useEffect(() => {
+    if (!message) return;
+    const id = setTimeout(() => setMessage(''), 4000);
+    return () => clearTimeout(id);
+  }, [message]);
 
   const minutes = String(Math.floor(countdown / 60000)).padStart(2, '0');
   const seconds = String(Math.floor((countdown % 60000) / 1000)).padStart(2, '0');
@@ -80,8 +72,10 @@ export default function FaucetClaim() {
     <div className="w-full max-w-md mx-auto p-6 rounded-2xl bg-gradient-to-br from-yellow-400 via-orange-400 to-red-500 shadow-xl">
       <div className="bg-white/90 backdrop-blur-sm rounded-xl p-6 space-y-4">
         <div className="text-center">
-          <p className="text-sm text-gray-500 font-medium">Coin Balance</p>
-          <p className="text-3xl font-bold text-gray-900">{balance.toFixed(4)}</p>
+          <p className="text-sm text-gray-500 font-medium">Total Claimed</p>
+          <p className="text-3xl font-bold text-gray-900">
+            {balance !== null ? balance.toFixed(4) : '—'}
+          </p>
         </div>
 
         <button
@@ -94,11 +88,17 @@ export default function FaucetClaim() {
           }`}
         >
           {loading
-            ? 'Claiming...'
+            ? 'Processing...'
             : canClaim
               ? 'Claim Free Coins'
               : `Next claim in ${minutes}:${seconds}`}
         </button>
+
+        {message && (
+          <p className="text-center text-sm text-gray-600 font-medium">{message}</p>
+        )}
+
+        <AdBanner position="below-claim" />
       </div>
     </div>
   );
