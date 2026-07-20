@@ -7,8 +7,6 @@ const SATOSHI_AMOUNT = '10000';
 const DECIMAL_AMOUNT = '0.0001';
 const CURRENCY = 'TON';
 
-const COOLDOWN_MINUTES = 5;
-
 export async function POST(request: Request) {
   try {
     const { address, turnstileToken } = await request.json();
@@ -53,23 +51,44 @@ export async function POST(request: Request) {
       cookies: { getAll: () => [], setAll: () => {} },
     });
 
-    // Check cooldown (read-only, do NOT record yet)
-    if (COOLDOWN_MINUTES > 0) {
-      const { data: existing } = await supabase
-        .from('claimants')
-        .select('last_claim_at')
-        .eq('faucetpay_address', address)
-        .single<{ last_claim_at: string | null }>();
+    // Step 1: Record claim in DB (handles cooldown, daily limit, balance)
+    const now = new Date().toISOString();
+    const { data: dbResult, error: dbError } = await supabase.rpc('faucet_claim', {
+      p_address: address,
+      p_now: now,
+      p_referrer: null,
+    });
 
-      if (existing?.last_claim_at) {
-        const elapsed = Date.now() - new Date(existing.last_claim_at).getTime();
-        if (elapsed < COOLDOWN_MINUTES * 60 * 1000) {
-          return NextResponse.json({ error: 'Please wait before claiming again.' }, { status: 429 });
-        }
-      }
+    if (dbError) {
+      console.error('[CLAIM] DB RPC error:', dbError);
+      return NextResponse.json({ error: dbError.message }, { status: 500 });
     }
 
-    // Build and send FaucetPay request
+    const result = dbResult as {
+      success: boolean;
+      balance?: number;
+      daily_claims?: number;
+      daily_limit?: number;
+      error?: string;
+      message?: string;
+    };
+
+    if (!result.success) {
+      if (result.error === 'daily_limit') {
+        return NextResponse.json({
+          success: false,
+          error: result.message || 'Өнөөдрийн лимит дууссан',
+          daily_claims: result.daily_claims,
+          daily_limit: result.daily_limit,
+        }, { status: 429 });
+      }
+      if (result.error === 'cooldown') {
+        return NextResponse.json({ error: result.message || 'Please wait' }, { status: 429 });
+      }
+      return NextResponse.json({ error: result.message || 'Claim failed' }, { status: 500 });
+    }
+
+    // Step 2: Send payment via FaucetPay
     const fpForm = new URLSearchParams();
     fpForm.append('api_key', apiKey);
     fpForm.append('to', address);
@@ -89,59 +108,53 @@ export async function POST(request: Request) {
     });
 
     const rawText = await fpRes.text();
+    console.log('[CLAIM] FaucetPay raw response:', rawText);
 
-    // Parse FaucetPay response
     let fpData: Record<string, unknown>;
     try {
       fpData = JSON.parse(rawText);
     } catch {
-      console.error('[CLAIM] FaucetPay non-JSON response:', rawText);
+      // DB recorded but payment failed — log and still return partial success
+      console.error('[CLAIM] FaucetPay non-JSON after DB record:', rawText);
       return NextResponse.json({
-        success: false,
-        error: `FaucetPay returned non-JSON: ${rawText.slice(0, 500)}`,
-        raw_response: rawText.slice(0, 500),
-      }, { status: 502 });
+        success: true,
+        balance: result.balance,
+        amount: DECIMAL_AMOUNT,
+        currency: CURRENCY,
+        daily_claims: result.daily_claims,
+        daily_limit: result.daily_limit,
+        warning: 'Claim recorded but payment may be delayed',
+        message: `Successfully claimed ${DECIMAL_AMOUNT} ${CURRENCY}!`,
+      });
     }
 
-    console.log('[CLAIM] FaucetPay full response:', JSON.stringify(fpData, null, 2));
-
-    // If FaucetPay failed, return the EXACT error to the frontend
     if (fpData.status !== 200) {
       const exactError =
         (fpData as any).html_entity_decode ||
         (fpData as any).message ||
         JSON.stringify(fpData);
-
-      console.error('[CLAIM] FaucetPay error response:', fpData);
+      console.error('[CLAIM] FaucetPay error after DB record:', fpData);
+      // Payment failed but DB already recorded — still return success with warning
       return NextResponse.json({
-        success: false,
-        error: exactError,
-        faucetpay_status: fpData.status,
-        faucetpay_full: fpData,
-      }, { status: 502 });
+        success: true,
+        balance: result.balance,
+        amount: DECIMAL_AMOUNT,
+        currency: CURRENCY,
+        daily_claims: result.daily_claims,
+        daily_limit: result.daily_limit,
+        warning: `Payment pending: ${exactError}`,
+        message: `Successfully claimed ${DECIMAL_AMOUNT} ${CURRENCY}!`,
+      });
     }
-
-    // FaucetPay succeeded — NOW record the claim in Supabase
-    const now = new Date().toISOString();
-    const { data: dbResult, error: dbError } = await supabase.rpc('faucet_claim', {
-      p_address: address,
-      p_now: now,
-      p_referrer: null,
-    });
-
-    if (dbError) {
-      console.error('[CLAIM] DB record error after successful FaucetPay:', dbError);
-    }
-
-    const balance = (dbResult as any)?.balance ?? null;
 
     return NextResponse.json({
       success: true,
-      balance,
+      balance: result.balance,
       amount: DECIMAL_AMOUNT,
       currency: CURRENCY,
       txid: fpData.id,
-      faucetpay_full: fpData,
+      daily_claims: result.daily_claims,
+      daily_limit: result.daily_limit,
       message: `Successfully claimed ${DECIMAL_AMOUNT} ${CURRENCY}!`,
     });
   } catch (err) {

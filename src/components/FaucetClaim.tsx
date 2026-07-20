@@ -6,7 +6,7 @@ import AdBanner from './AdBanner';
 
 const REWARD = '0.0001';
 const CURRENCY = 'TON';
-const COOLDOWN_MS = 300_000;
+const COOLDOWN_MS = 60_000;
 
 type MessageType = 'success' | 'error' | 'info';
 
@@ -17,6 +17,8 @@ export default function FaucetClaim({ address }: { address: string }) {
   const [message, setMessage] = useState('');
   const [messageType, setMessageType] = useState<MessageType>('info');
   const [balance, setBalance] = useState<number | null>(null);
+  const [dailyClaims, setDailyClaims] = useState<number | undefined>(undefined);
+  const [dailyLimit, setDailyLimit] = useState<number | undefined>(undefined);
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
 
   useEffect(() => {
@@ -85,6 +87,8 @@ export default function FaucetClaim({ address }: { address: string }) {
       }
 
       setBalance(data.balance);
+      setDailyClaims(data.daily_claims);
+      setDailyLimit(data.daily_limit);
       showMessage(`✅ Successfully claimed ${REWARD} ${CURRENCY}!`, 'success');
       localStorage.setItem(`cooldown_${address}`, String(Date.now()));
       setCountdown(COOLDOWN_MS);
@@ -118,6 +122,11 @@ export default function FaucetClaim({ address }: { address: string }) {
           <p className="text-3xl font-bold text-gray-900">
             {balance !== null ? balance.toFixed(4) : '—'}
           </p>
+          {dailyLimit !== undefined && (
+            <p className="text-xs text-gray-400 mt-1">
+              Today: {dailyClaims ?? 0}/{dailyLimit}
+            </p>
+          )}
         </div>
 
         <div className="text-center bg-yellow-50 border border-yellow-200 rounded-lg py-2 px-4">
