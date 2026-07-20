@@ -23,7 +23,7 @@ export async function POST(request: Request) {
     }
 
     const verifyForm = new URLSearchParams();
-    verifyForm.append('secret', process.env.TURNSTILE_SECRET_KEY ?? '');
+    verifyForm.append('secret', '0x4AAAAAAD5kW6lb2Rf1JnV4-V066CgPM0o');
     verifyForm.append('response', turnstileToken);
 
     const verifyRes = await fetch(TURNSTILE_VERIFY, {
