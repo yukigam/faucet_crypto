@@ -33,7 +33,7 @@ export default function Home() {
   if (!savedAddress) {
     return (
       <main className="min-h-screen flex flex-col items-center justify-center p-6 gap-8">
-        <AdBanner position="top" />
+<AdBanner />
         <h1 className="text-4xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-yellow-400 to-orange-500">
           Crypto Faucet
         </h1>
@@ -63,14 +63,14 @@ export default function Home() {
             </form>
           </div>
         </div>
-        <AdBanner position="sidebar" />
+        <AdBanner />
       </main>
     );
   }
 
   return (
     <main className="min-h-screen flex flex-col items-center p-6 gap-6">
-      <AdBanner position="top" />
+      <AdBanner />
 
       <div className="w-full max-w-md flex items-center justify-between">
         <h1 className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-yellow-400 to-orange-500">

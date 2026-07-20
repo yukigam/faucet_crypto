@@ -116,7 +116,7 @@ export default function FaucetClaim({ address }: { address: string }) {
           </div>
         )}
 
-        <AdBanner position="below-claim" />
+        <AdBanner />
       </div>
     </div>
   );
