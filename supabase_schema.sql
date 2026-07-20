@@ -84,10 +84,10 @@ BEGIN
   END IF;
 
   INSERT INTO public.claimants (faucetpay_address, balance, last_claim_at, daily_claim_count, last_claim_date, referred_by)
-  VALUES (p_address, 0.0001, p_now, 1, v_today, p_referrer)
+  VALUES (p_address, 0.00002, p_now, 1, v_today, p_referrer)
   ON CONFLICT (faucetpay_address)
   DO UPDATE SET
-    balance = public.claimants.balance + 0.0001,
+    balance = public.claimants.balance + 0.00002,
     last_claim_at = p_now,
     daily_claim_count = public.claimants.daily_claim_count + 1,
     last_claim_date = v_today,

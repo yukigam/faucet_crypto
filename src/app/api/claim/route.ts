@@ -3,8 +3,8 @@ import { createServerClient } from '@supabase/ssr';
 
 const FAUCETPAY_API = 'https://faucetpay.io/api/v1/send';
 const TURNSTILE_VERIFY = 'https://challenges.cloudflare.com/turnstile/v0/siteverify';
-const SATOSHI_AMOUNT = '10000';
-const DECIMAL_AMOUNT = '0.0001';
+const SATOSHI_AMOUNT = '2000';
+const DECIMAL_AMOUNT = '0.00002';
 const CURRENCY = 'TON';
 
 export async function POST(request: Request) {

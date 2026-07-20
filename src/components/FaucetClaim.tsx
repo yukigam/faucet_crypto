@@ -4,7 +4,7 @@ import { useEffect, useState, useRef, useCallback } from 'react';
 import { Turnstile, type TurnstileInstance } from '@marsidev/react-turnstile';
 import AdBanner from './AdBanner';
 
-const REWARD = '0.0001';
+const REWARD = '0.00002';
 const CURRENCY = 'TON';
 const COOLDOWN_MS = 60_000;
 
@@ -19,6 +19,7 @@ export default function FaucetClaim({ address }: { address: string }) {
   const [balance, setBalance] = useState<number | null>(null);
   const [dailyClaims, setDailyClaims] = useState<number | undefined>(undefined);
   const [dailyLimit, setDailyLimit] = useState<number | undefined>(undefined);
+  const [limitReached, setLimitReached] = useState(false);
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
 
   useEffect(() => {
@@ -26,6 +27,16 @@ export default function FaucetClaim({ address }: { address: string }) {
     if (stored) {
       const elapsed = Date.now() - Number(stored);
       setCountdown(Math.max(0, COOLDOWN_MS - elapsed));
+    }
+
+    const limitDate = localStorage.getItem(`limit_${address}`);
+    if (limitDate) {
+      const today = new Date().toDateString();
+      if (limitDate === today) {
+        setLimitReached(true);
+      } else {
+        localStorage.removeItem(`limit_${address}`);
+      }
     }
   }, [address]);
 
@@ -81,6 +92,14 @@ export default function FaucetClaim({ address }: { address: string }) {
       resetCaptcha();
 
       if (!res.ok) {
+        if (data.daily_limit && data.daily_claims && data.daily_claims >= data.daily_limit) {
+          setLimitReached(true);
+          setDailyClaims(data.daily_claims);
+          setDailyLimit(data.daily_limit);
+          localStorage.setItem(`limit_${address}`, new Date().toDateString());
+          showMessage('Та өнөөдрийн лимитээ дуусгасан, маргааш дахин ирээрэй', 'info');
+          return;
+        }
         const errorText = data.error || 'Something went wrong.';
         showMessage(`❌ ${errorText}`, 'error');
         return;
@@ -101,6 +120,7 @@ export default function FaucetClaim({ address }: { address: string }) {
   };
 
   const isCooldown = countdown > 0;
+  const isLimitReached = limitReached;
 
   const messageStyles = {
     success: 'bg-green-100 border-green-300 text-green-800',
@@ -110,9 +130,11 @@ export default function FaucetClaim({ address }: { address: string }) {
 
   const buttonLabel = loading
     ? 'Processing...'
-    : isCooldown
-      ? `Wait ${minutes}:${seconds}`
-      : `Claim ${REWARD} ${CURRENCY}`;
+    : isLimitReached
+      ? 'Limit Reached'
+      : isCooldown
+        ? `Wait ${minutes}:${seconds}`
+        : `Claim ${REWARD} ${CURRENCY}`;
 
   return (
     <div className="w-full max-w-md mx-auto overflow-hidden p-6 rounded-2xl bg-gradient-to-br from-yellow-400 via-orange-400 to-red-500 shadow-xl">
@@ -149,14 +171,21 @@ export default function FaucetClaim({ address }: { address: string }) {
 
         <button
           onClick={claim}
+          disabled={isLimitReached}
           className={`w-full py-3 px-6 rounded-lg font-semibold text-lg transition-all duration-200 ${
-            isCooldown
+            isCooldown || isLimitReached
               ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
               : 'bg-gradient-to-r from-yellow-400 to-orange-500 text-white hover:scale-105 hover:shadow-lg active:scale-95'
           }`}
         >
           {buttonLabel}
         </button>
+
+        {isLimitReached && (
+          <div className="border rounded-lg px-4 py-3 text-sm font-medium bg-red-100 border-red-300 text-red-700">
+            Та өнөөдрийн лимитээ дуусгасан, маргааш дахин ирээрэй
+          </div>
+        )}
 
         {message && (
           <div className={`border rounded-lg px-4 py-3 text-sm font-medium ${messageStyles[messageType]}`}>
