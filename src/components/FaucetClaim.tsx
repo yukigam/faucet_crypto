@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import AdBanner from './AdBanner';
 
-const REWARD = '0.0001';
+const REWARD = '100';
 const CURRENCY = 'TON';
 const COOLDOWN_MS = 300_000;
 

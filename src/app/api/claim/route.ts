@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 
 const FAUCETPAY_API = 'https://faucetpay.io/api/v1/send';
-const AMOUNT = '0.0001';
+const AMOUNT = '100';
 const CURRENCY = 'TON';
 
 export async function POST(request: Request) {
