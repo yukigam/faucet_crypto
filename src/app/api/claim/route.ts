@@ -2,7 +2,8 @@ import { NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 
 const FAUCETPAY_API = 'https://faucetpay.io/api/v1/send';
-const AMOUNT = '100';
+const SATOSHI_AMOUNT = '10000';
+const DISPLAY_AMOUNT = '0.0001';
 const CURRENCY = 'TON';
 
 export async function POST(request: Request) {
@@ -51,13 +52,13 @@ export async function POST(request: Request) {
     const fpForm = new URLSearchParams();
     fpForm.append('api_key', apiKey);
     fpForm.append('to', address);
-    fpForm.append('amount', AMOUNT);
+    fpForm.append('amount', SATOSHI_AMOUNT);
     fpForm.append('currency', CURRENCY);
 
     console.log('[CLAIM] Sending to FaucetPay:', {
       url: FAUCETPAY_API,
       currency: CURRENCY,
-      amount: AMOUNT,
+      amount: `${DISPLAY_AMOUNT} TON -> ${SATOSHI_AMOUNT} satoshi`,
       to: address,
     });
 
@@ -100,10 +101,10 @@ export async function POST(request: Request) {
     return NextResponse.json({
       success: true,
       balance: result.balance,
-      amount: AMOUNT,
+      amount: DISPLAY_AMOUNT,
       currency: CURRENCY,
       txid: fpData.id,
-      message: `Successfully claimed ${AMOUNT} ${CURRENCY}!`,
+      message: `Successfully claimed ${DISPLAY_AMOUNT} ${CURRENCY}!`,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Internal server error';
