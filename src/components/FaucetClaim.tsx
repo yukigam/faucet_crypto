@@ -7,10 +7,13 @@ const REWARD = '0.0001';
 const CURRENCY = 'TON';
 const COOLDOWN_MS = 300_000;
 
+type MessageType = 'success' | 'error' | 'info';
+
 export default function FaucetClaim({ address }: { address: string }) {
   const [countdown, setCountdown] = useState(0);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
+  const [messageType, setMessageType] = useState<MessageType>('info');
   const [balance, setBalance] = useState<number | null>(null);
 
   useEffect(() => {
@@ -27,6 +30,14 @@ export default function FaucetClaim({ address }: { address: string }) {
     return () => clearInterval(id);
   }, [countdown]);
 
+  const showMessage = (text: string, type: MessageType) => {
+    setMessage(text);
+    setMessageType(type);
+    if (type !== 'error') {
+      setTimeout(() => { setMessage(''); }, 4000);
+    }
+  };
+
   const claim = async () => {
     setLoading(true);
     setMessage('');
@@ -41,36 +52,31 @@ export default function FaucetClaim({ address }: { address: string }) {
       const data = await res.json();
 
       if (!res.ok) {
-        if (res.status === 429) {
-          setMessage('⏳ Please wait 5 minutes between claims.');
-        } else if (data.error) {
-          setMessage(`❌ ${data.error}`);
-        } else {
-          setMessage('❌ Something went wrong. Try again.');
-        }
+        const errorText = data.error || 'Something went wrong.';
+        showMessage(`❌ ${errorText}`, 'error');
         return;
       }
 
       setBalance(data.balance);
-      setMessage(data.message || `Successfully claimed ${REWARD} ${CURRENCY}!`);
+      showMessage(`✅ Successfully claimed ${REWARD} ${CURRENCY}!`, 'success');
       localStorage.setItem(`cooldown_${address}`, String(Date.now()));
       setCountdown(COOLDOWN_MS);
     } catch {
-      setMessage('❌ Network error. Check your connection.');
+      showMessage('❌ Network error. Check your connection.', 'error');
     } finally {
       setLoading(false);
     }
   };
 
-  useEffect(() => {
-    if (!message) return;
-    const id = setTimeout(() => setMessage(''), 4000);
-    return () => clearTimeout(id);
-  }, [message]);
-
   const minutes = String(Math.floor(countdown / 60000)).padStart(2, '0');
   const seconds = String(Math.floor((countdown % 60000) / 1000)).padStart(2, '0');
   const canClaim = countdown <= 0 && !loading;
+
+  const messageStyles = {
+    success: 'bg-green-100 border-green-300 text-green-800',
+    error: 'bg-red-100 border-red-300 text-red-700',
+    info: 'bg-gray-100 border-gray-200 text-gray-600',
+  };
 
   return (
     <div className="w-full max-w-md mx-auto p-6 rounded-2xl bg-gradient-to-br from-yellow-400 via-orange-400 to-red-500 shadow-xl">
@@ -105,7 +111,9 @@ export default function FaucetClaim({ address }: { address: string }) {
         </button>
 
         {message && (
-          <p className="text-center text-sm text-gray-600 font-medium">{message}</p>
+          <div className={`border rounded-lg px-4 py-3 text-sm font-medium ${messageStyles[messageType]}`}>
+            {message}
+          </div>
         )}
 
         <AdBanner position="below-claim" />

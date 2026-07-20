@@ -1,8 +1,9 @@
 import { NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
-import { cookies } from 'next/headers';
 
 const FAUCETPAY_API = 'https://faucetpay.io/api/v1/send';
+const AMOUNT = '0.0001';
+const CURRENCY = 'TON';
 
 export async function POST(request: Request) {
   try {
@@ -36,6 +37,7 @@ export async function POST(request: Request) {
     });
 
     if (rpcError) {
+      console.error('[CLAIM] DB RPC error:', rpcError);
       return NextResponse.json({ error: rpcError.message }, { status: 500 });
     }
 
@@ -45,12 +47,19 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: result.message || 'Cooldown active' }, { status: 429 });
     }
 
-    // Call FaucetPay API
+    // Build FaucetPay request
     const fpForm = new URLSearchParams();
     fpForm.append('api_key', apiKey);
     fpForm.append('to', address);
-    fpForm.append('amount', '0.0001');
-    fpForm.append('currency', 'TON');
+    fpForm.append('amount', AMOUNT);
+    fpForm.append('currency', CURRENCY);
+
+    console.log('[CLAIM] Sending to FaucetPay:', {
+      url: FAUCETPAY_API,
+      currency: CURRENCY,
+      amount: AMOUNT,
+      to: address,
+    });
 
     const fpRes = await fetch(FAUCETPAY_API, {
       method: 'POST',
@@ -58,26 +67,47 @@ export async function POST(request: Request) {
       body: fpForm.toString(),
     });
 
-    const fpData = await fpRes.json();
+    // Read raw text first to handle non-JSON responses
+    const rawText = await fpRes.text();
+    console.log('[CLAIM] FaucetPay raw response:', rawText);
 
-    if (fpData.status !== 200) {
+    let fpData: Record<string, unknown>;
+    try {
+      fpData = JSON.parse(rawText);
+    } catch {
       return NextResponse.json({
         success: false,
-        error: fpData.message || 'FaucetPay payment failed',
+        error: `FaucetPay returned non-JSON: ${rawText.slice(0, 500)}`,
+      }, { status: 502 });
+    }
+
+    // FaucetPay returns status == 200 on success
+    if (fpData.status !== 200) {
+      const errorMsg = typeof fpData.message === 'string'
+        ? fpData.message
+        : JSON.stringify(fpData.message || 'FaucetPay payment failed');
+
+      console.error('[CLAIM] FaucetPay error:', { status: fpData.status, message: errorMsg });
+      return NextResponse.json({
+        success: false,
+        error: errorMsg,
         faucetpay_status: fpData.status,
       }, { status: 502 });
     }
 
+    console.log('[CLAIM] FaucetPay success:', fpData);
+
     return NextResponse.json({
       success: true,
       balance: result.balance,
-      amount: '0.0001',
-      currency: 'TON',
+      amount: AMOUNT,
+      currency: CURRENCY,
       txid: fpData.id,
-      message: 'Successfully claimed 0.0001 TON!',
+      message: `Successfully claimed ${AMOUNT} ${CURRENCY}!`,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Internal server error';
+    console.error('[CLAIM] Unhandled error:', err);
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
