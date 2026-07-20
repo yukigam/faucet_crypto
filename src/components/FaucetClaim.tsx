@@ -138,24 +138,16 @@ export default function FaucetClaim({ address }: { address: string }) {
           </div>
         </div>
 
-        <div className="relative">
-          {/* Invisible overlay to capture ALL clicks for popunder ad */}
-          <div
-            className="absolute inset-0 z-10 cursor-pointer"
-            onClick={claim}
-          />
-          <button
-            onClick={claim}
-            disabled={loading}
-            className={`relative z-20 w-full py-3 px-6 rounded-lg font-semibold text-lg transition-all duration-200 pointer-events-none ${
-              isCooldown
-                ? 'bg-gray-300 text-gray-500'
-                : 'bg-gradient-to-r from-yellow-400 to-orange-500 text-white hover:scale-105 hover:shadow-lg active:scale-95'
-            }`}
-          >
-            {buttonLabel}
-          </button>
-        </div>
+        <button
+          onClick={claim}
+          className={`w-full py-3 px-6 rounded-lg font-semibold text-lg transition-all duration-200 ${
+            isCooldown
+              ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+              : 'bg-gradient-to-r from-yellow-400 to-orange-500 text-white hover:scale-105 hover:shadow-lg active:scale-95'
+          }`}
+        >
+          {buttonLabel}
+        </button>
 
         {message && (
           <div className={`border rounded-lg px-4 py-3 text-sm font-medium ${messageStyles[messageType]}`}>
