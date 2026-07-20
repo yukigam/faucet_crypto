@@ -3,12 +3,14 @@ import { createServerClient } from '@supabase/ssr';
 
 const FAUCETPAY_API = 'https://faucetpay.io/api/v1/send';
 const SATOSHI_AMOUNT = '10000';
-const DISPLAY_AMOUNT = '0.0001';
+const DECIMAL_AMOUNT = '0.0001';
 const CURRENCY = 'TON';
+
+const COOLDOWN_MINUTES = 0; // 0 = no cooldown for testing
 
 export async function POST(request: Request) {
   try {
-    const { address, referralCode } = await request.json();
+    const { address } = await request.json();
 
     if (!address || typeof address !== 'string') {
       return NextResponse.json({ error: 'FaucetPay address is required' }, { status: 400 });
@@ -29,26 +31,23 @@ export async function POST(request: Request) {
       cookies: { getAll: () => [], setAll: () => {} },
     });
 
-    // Check cooldown and update balance via RPC
-    const now = new Date().toISOString();
-    const { data: rpcResult, error: rpcError } = await supabase.rpc('faucet_claim', {
-      p_address: address,
-      p_now: now,
-      p_referrer: referralCode || null,
-    });
+    // 1. Check cooldown (read-only, do NOT record yet)
+    if (COOLDOWN_MINUTES > 0) {
+      const { data: existing } = await supabase
+        .from('claimants')
+        .select('last_claim_at')
+        .eq('faucetpay_address', address)
+        .single<{ last_claim_at: string | null }>();
 
-    if (rpcError) {
-      console.error('[CLAIM] DB RPC error:', rpcError);
-      return NextResponse.json({ error: rpcError.message }, { status: 500 });
+      if (existing?.last_claim_at) {
+        const elapsed = Date.now() - new Date(existing.last_claim_at).getTime();
+        if (elapsed < COOLDOWN_MINUTES * 60 * 1000) {
+          return NextResponse.json({ error: 'Please wait before claiming again.' }, { status: 429 });
+        }
+      }
     }
 
-    const result = rpcResult as { success: boolean; error?: string; message?: string; balance?: number };
-
-    if (!result.success) {
-      return NextResponse.json({ error: result.message || 'Cooldown active' }, { status: 429 });
-    }
-
-    // Build FaucetPay request
+    // 2. Build and send FaucetPay request
     const fpForm = new URLSearchParams();
     fpForm.append('api_key', apiKey);
     fpForm.append('to', address);
@@ -56,9 +55,8 @@ export async function POST(request: Request) {
     fpForm.append('currency', CURRENCY);
 
     console.log('[CLAIM] Sending to FaucetPay:', {
-      url: FAUCETPAY_API,
       currency: CURRENCY,
-      amount: `${DISPLAY_AMOUNT} TON -> ${SATOSHI_AMOUNT} satoshi`,
+      amount: `${DECIMAL_AMOUNT} TON -> ${SATOSHI_AMOUNT} satoshi`,
       to: address,
     });
 
@@ -68,47 +66,66 @@ export async function POST(request: Request) {
       body: fpForm.toString(),
     });
 
-    // Read raw text first to handle non-JSON responses
     const rawText = await fpRes.text();
-    console.log('[CLAIM] FaucetPay raw response:', rawText);
 
+    // 3. Parse FaucetPay response
     let fpData: Record<string, unknown>;
     try {
       fpData = JSON.parse(rawText);
     } catch {
+      console.error('[CLAIM] FaucetPay non-JSON response:', rawText);
       return NextResponse.json({
         success: false,
         error: `FaucetPay returned non-JSON: ${rawText.slice(0, 500)}`,
+        raw_response: rawText.slice(0, 500),
       }, { status: 502 });
     }
 
-    // FaucetPay returns status == 200 on success
-    if (fpData.status !== 200) {
-      const errorMsg = typeof fpData.message === 'string'
-        ? fpData.message
-        : JSON.stringify(fpData.message || 'FaucetPay payment failed');
+    console.log('[CLAIM] FaucetPay full response:', JSON.stringify(fpData, null, 2));
 
-      console.error('[CLAIM] FaucetPay error:', { status: fpData.status, message: errorMsg });
+    // 4. If FaucetPay failed, return the EXACT error to the frontend
+    if (fpData.status !== 200) {
+      const exactError =
+        (fpData as any).html_entity_decode ||
+        (fpData as any).message ||
+        JSON.stringify(fpData);
+
+      console.error('[CLAIM] FaucetPay error response:', fpData);
       return NextResponse.json({
         success: false,
-        error: errorMsg,
+        error: exactError,
         faucetpay_status: fpData.status,
+        faucetpay_full: fpData,
       }, { status: 502 });
     }
 
-    console.log('[CLAIM] FaucetPay success:', fpData);
+    // 5. FaucetPay succeeded — NOW record the claim in Supabase
+    const now = new Date().toISOString();
+    const { data: dbResult, error: dbError } = await supabase.rpc('faucet_claim', {
+      p_address: address,
+      p_now: now,
+      p_referrer: null,
+    });
+
+    if (dbError) {
+      console.error('[CLAIM] DB record error after successful FaucetPay:', dbError);
+      // Payment went through but DB failed — still return success to user
+    }
+
+    const balance = (dbResult as any)?.balance ?? null;
 
     return NextResponse.json({
       success: true,
-      balance: result.balance,
-      amount: DISPLAY_AMOUNT,
+      balance,
+      amount: DECIMAL_AMOUNT,
       currency: CURRENCY,
       txid: fpData.id,
-      message: `Successfully claimed ${DISPLAY_AMOUNT} ${CURRENCY}!`,
+      faucetpay_full: fpData,
+      message: `Successfully claimed ${DECIMAL_AMOUNT} ${CURRENCY}!`,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Internal server error';
     console.error('[CLAIM] Unhandled error:', err);
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: message, success: false }, { status: 500 });
   }
 }
