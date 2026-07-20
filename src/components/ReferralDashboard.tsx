@@ -42,7 +42,7 @@ export default function ReferralDashboard({ address }: { address: string }) {
   }, [address]);
 
   return (
-    <div className="w-full max-w-md mx-auto p-6 rounded-2xl bg-gradient-to-br from-emerald-400 via-teal-400 to-cyan-500 shadow-xl">
+    <div className="w-full max-w-md mx-auto overflow-hidden p-6 rounded-2xl bg-gradient-to-br from-emerald-400 via-teal-400 to-cyan-500 shadow-xl">
       <div className="bg-white/90 backdrop-blur-sm rounded-xl p-6 space-y-6">
         <h2 className="text-xl font-bold text-gray-900 text-center">
           Referral Program
@@ -50,12 +50,12 @@ export default function ReferralDashboard({ address }: { address: string }) {
 
         <div className="bg-gray-50 rounded-lg p-4 space-y-2">
           <p className="text-sm text-gray-500 font-medium">Your Referral Link</p>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-col sm:flex-row gap-2 w-full">
             <input
               type="text"
               readOnly
               value={referralLink}
-              className="flex-1 text-sm bg-white border border-gray-200 rounded-lg px-3 py-2 text-gray-700 truncate"
+              className="w-full min-w-0 text-sm bg-white border border-gray-200 rounded-lg px-3 py-2 text-gray-700 truncate"
             />
             <button
               onClick={copyToClipboard}

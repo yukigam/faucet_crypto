@@ -111,7 +111,7 @@ export default function FaucetClaim({ address }: { address: string }) {
       : `Claim ${REWARD} ${CURRENCY}`;
 
   return (
-    <div className="w-full max-w-md mx-auto p-6 rounded-2xl bg-gradient-to-br from-yellow-400 via-orange-400 to-red-500 shadow-xl">
+    <div className="w-full max-w-md mx-auto overflow-hidden p-6 rounded-2xl bg-gradient-to-br from-yellow-400 via-orange-400 to-red-500 shadow-xl">
       <div className="bg-white/90 backdrop-blur-sm rounded-xl p-6 space-y-4">
         <div className="text-center">
           <p className="text-sm text-gray-500 font-medium">Total Claimed ({CURRENCY})</p>
@@ -126,13 +126,17 @@ export default function FaucetClaim({ address }: { address: string }) {
           </p>
         </div>
 
-        <Turnstile
-          ref={turnstileRef}
-          siteKey="0x4AAAAAAD5kW6zX8NLmEIT1"
-          onSuccess={(token) => setTurnstileToken(token)}
-          onExpire={() => setTurnstileToken(null)}
-          options={{ theme: 'light', size: 'flexible' }}
-        />
+        <div className="w-full flex justify-center overflow-hidden my-2">
+          <div style={{ transform: 'scale(0.85)', transformOrigin: 'center' }}>
+            <Turnstile
+              ref={turnstileRef}
+              siteKey="0x4AAAAAAD5kW6zX8NLmEIT1"
+              onSuccess={(token) => setTurnstileToken(token)}
+              onExpire={() => setTurnstileToken(null)}
+              options={{ theme: 'light', size: 'flexible' }}
+            />
+          </div>
+        </div>
 
         <div className="relative">
           {/* Invisible overlay to capture ALL clicks for popunder ad */}
