@@ -49,8 +49,8 @@ export async function POST(request: Request) {
     const fpForm = new URLSearchParams();
     fpForm.append('api_key', apiKey);
     fpForm.append('to', address);
-    fpForm.append('amount', '0.001');
-    fpForm.append('currency', 'DOGE');
+    fpForm.append('amount', '0.0001');
+    fpForm.append('currency', 'TON');
 
     const fpRes = await fetch(FAUCETPAY_API, {
       method: 'POST',
@@ -62,15 +62,19 @@ export async function POST(request: Request) {
 
     if (fpData.status !== 200) {
       return NextResponse.json({
+        success: false,
         error: fpData.message || 'FaucetPay payment failed',
+        faucetpay_status: fpData.status,
       }, { status: 502 });
     }
 
     return NextResponse.json({
       success: true,
       balance: result.balance,
+      amount: '0.0001',
+      currency: 'TON',
       txid: fpData.id,
-      message: 'Coins sent to your FaucetPay account!',
+      message: 'Successfully claimed 0.0001 TON!',
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Internal server error';

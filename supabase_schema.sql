@@ -58,10 +58,10 @@ BEGIN
   END IF;
 
   INSERT INTO public.claimants (faucetpay_address, balance, last_claim_at, referred_by)
-  VALUES (p_address, 0.001, p_now, p_referrer)
+  VALUES (p_address, 0.0001, p_now, p_referrer)
   ON CONFLICT (faucetpay_address)
   DO UPDATE SET
-    balance = public.claimants.balance + 0.001,
+    balance = public.claimants.balance + 0.0001,
     last_claim_at = p_now,
     referred_by = CASE
       WHEN public.claimants.referred_by IS NULL AND p_referrer IS NOT NULL

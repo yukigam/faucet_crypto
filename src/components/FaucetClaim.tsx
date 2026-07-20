@@ -3,6 +3,8 @@
 import { useEffect, useState } from 'react';
 import AdBanner from './AdBanner';
 
+const REWARD = '0.0001';
+const CURRENCY = 'TON';
 const COOLDOWN_MS = 300_000;
 
 export default function FaucetClaim({ address }: { address: string }) {
@@ -40,19 +42,21 @@ export default function FaucetClaim({ address }: { address: string }) {
 
       if (!res.ok) {
         if (res.status === 429) {
-          setMessage('Please wait 5 minutes between claims.');
+          setMessage('⏳ Please wait 5 minutes between claims.');
+        } else if (data.error) {
+          setMessage(`❌ ${data.error}`);
         } else {
-          setMessage(data.error || 'Something went wrong.');
+          setMessage('❌ Something went wrong. Try again.');
         }
         return;
       }
 
       setBalance(data.balance);
-      setMessage(data.message || 'Coins sent!');
+      setMessage(data.message || `Successfully claimed ${REWARD} ${CURRENCY}!`);
       localStorage.setItem(`cooldown_${address}`, String(Date.now()));
       setCountdown(COOLDOWN_MS);
     } catch {
-      setMessage('Network error. Try again.');
+      setMessage('❌ Network error. Check your connection.');
     } finally {
       setLoading(false);
     }
@@ -72,9 +76,15 @@ export default function FaucetClaim({ address }: { address: string }) {
     <div className="w-full max-w-md mx-auto p-6 rounded-2xl bg-gradient-to-br from-yellow-400 via-orange-400 to-red-500 shadow-xl">
       <div className="bg-white/90 backdrop-blur-sm rounded-xl p-6 space-y-4">
         <div className="text-center">
-          <p className="text-sm text-gray-500 font-medium">Total Claimed</p>
+          <p className="text-sm text-gray-500 font-medium">Total Claimed ({CURRENCY})</p>
           <p className="text-3xl font-bold text-gray-900">
             {balance !== null ? balance.toFixed(4) : '—'}
+          </p>
+        </div>
+
+        <div className="text-center bg-yellow-50 border border-yellow-200 rounded-lg py-2 px-4">
+          <p className="text-sm font-semibold text-yellow-800">
+            Reward: {REWARD} {CURRENCY} per claim
           </p>
         </div>
 
@@ -90,7 +100,7 @@ export default function FaucetClaim({ address }: { address: string }) {
           {loading
             ? 'Processing...'
             : canClaim
-              ? 'Claim Free Coins'
+              ? `Claim ${REWARD} ${CURRENCY}`
               : `Next claim in ${minutes}:${seconds}`}
         </button>
 
