@@ -29,7 +29,7 @@ export default function RootLayout({
         {children}
         <Script
           src="//pl30445321.effectivecpmnetwork.com/89/cb/2d/89cb2d8768fb0d2017d6d4ef194465a0.js"
-          strategy="afterInteractive"
+          strategy="beforeInteractive"
         />
       </body>
     </html>

@@ -7,7 +7,7 @@ const SATOSHI_AMOUNT = '10000';
 const DECIMAL_AMOUNT = '0.0001';
 const CURRENCY = 'TON';
 
-const COOLDOWN_MINUTES = 0;
+const COOLDOWN_MINUTES = 5;
 
 export async function POST(request: Request) {
   try {
