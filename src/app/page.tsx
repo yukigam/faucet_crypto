@@ -2,15 +2,18 @@
 
 import { useState, useEffect } from 'react';
 import FaucetClaim from '@/components/FaucetClaim';
+import ShortlinkClaim from '@/components/ShortlinkClaim';
 import ReferralDashboard from '@/components/ReferralDashboard';
 import AdBanner from '@/components/AdBanner';
 
 const STORAGE_KEY = 'faucetpay_address';
+type Tab = 'faucet' | 'shortlink';
 
 export default function Home() {
   const [address, setAddress] = useState('');
   const [savedAddress, setSavedAddress] = useState<string | null>(null);
   const [inputValue, setInputValue] = useState('');
+  const [activeTab, setActiveTab] = useState<Tab>('faucet');
 
   useEffect(() => {
     const stored = localStorage.getItem(STORAGE_KEY);
@@ -29,6 +32,11 @@ export default function Home() {
     setSavedAddress(null);
     setAddress('');
   };
+
+  const tabs: { key: Tab; label: string }[] = [
+    { key: 'faucet', label: 'Faucet' },
+    { key: 'shortlink', label: 'Shortlink' },
+  ];
 
   if (!savedAddress) {
     return (
@@ -86,7 +94,28 @@ export default function Home() {
 
       <p className="text-gray-400 -mt-3 text-sm truncate max-w-md">{savedAddress}</p>
 
-      <FaucetClaim address={savedAddress} />
+      <div className="w-full max-w-md flex bg-gray-800 rounded-lg p-1">
+        {tabs.map((tab) => (
+          <button
+            key={tab.key}
+            onClick={() => setActiveTab(tab.key)}
+            className={`flex-1 py-2 rounded-md text-sm font-medium transition-all duration-200 ${
+              activeTab === tab.key
+                ? 'bg-gradient-to-r from-yellow-400 to-orange-500 text-white shadow-lg'
+                : 'text-gray-400 hover:text-white'
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {activeTab === 'faucet' ? (
+        <FaucetClaim address={savedAddress} />
+      ) : (
+        <ShortlinkClaim address={savedAddress} />
+      )}
+
       <ReferralDashboard address={savedAddress} />
     </main>
   );

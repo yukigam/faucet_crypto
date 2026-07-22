@@ -109,3 +109,127 @@ BEGIN
   );
 END;
 $$;
+
+-- ============================================================
+-- Shortlink System
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS public.shortlink_claims (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  faucetpay_address TEXT REFERENCES public.claimants(faucetpay_address),
+  token TEXT UNIQUE NOT NULL DEFAULT encode(gen_random_bytes(16), 'hex'),
+  status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'completed', 'claimed')),
+  reward NUMERIC DEFAULT 0.00005,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  completed_at TIMESTAMPTZ
+);
+
+ALTER TABLE public.shortlink_claims ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "shortlink_claims_select_anon"
+  ON public.shortlink_claims
+  FOR SELECT
+  USING (true);
+
+CREATE POLICY "shortlink_claims_insert_anon"
+  ON public.shortlink_claims
+  FOR INSERT
+  WITH CHECK (true);
+
+CREATE POLICY "shortlink_claims_update_anon"
+  ON public.shortlink_claims
+  FOR UPDATE
+  USING (true);
+
+-- RPC: start a shortlink claim (creates token, checks limit)
+CREATE OR REPLACE FUNCTION public.shortlink_claim_start(
+  p_address TEXT,
+  p_now TIMESTAMPTZ
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER SET search_path = ''
+AS $$
+DECLARE
+  v_daily_shortlink INT;
+  v_today DATE;
+  v_token TEXT;
+  v_daily_limit INT := 10;
+BEGIN
+  v_today := p_now::DATE;
+
+  SELECT COUNT(*) INTO v_daily_shortlink
+  FROM public.shortlink_claims
+  WHERE faucetpay_address = p_address
+    AND created_at::DATE = v_today
+    AND status IN ('completed', 'claimed');
+
+  IF v_daily_shortlink >= v_daily_limit THEN
+    RETURN jsonb_build_object(
+      'success', false,
+      'error', 'daily_limit',
+      'message', 'Өнөөдрийн shortlink лимит дууссан',
+      'daily_claims', v_daily_shortlink,
+      'daily_limit', v_daily_limit
+    );
+  END IF;
+
+  v_token := encode(gen_random_bytes(16), 'hex');
+
+  INSERT INTO public.shortlink_claims (faucetpay_address, token, status, reward)
+  VALUES (p_address, v_token, 'pending', 0.00005);
+
+  RETURN jsonb_build_object(
+    'success', true,
+    'token', v_token,
+    'daily_claims', v_daily_shortlink,
+    'daily_limit', v_daily_limit
+  );
+END;
+$$;
+
+-- RPC: complete a shortlink claim (mark done, update balance)
+CREATE OR REPLACE FUNCTION public.shortlink_claim_complete(
+  p_token TEXT,
+  p_now TIMESTAMPTZ
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER SET search_path = ''
+AS $$
+DECLARE
+  v_claim RECORD;
+BEGIN
+  SELECT * INTO v_claim
+  FROM public.shortlink_claims
+  WHERE token = p_token AND status = 'pending'
+  FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object(
+      'success', false,
+      'error', 'invalid_token',
+      'message', 'Invalid or already used token'
+    );
+  END IF;
+
+  UPDATE public.shortlink_claims
+  SET status = 'completed', completed_at = p_now
+  WHERE id = v_claim.id;
+
+  INSERT INTO public.claimants (faucetpay_address, balance)
+  VALUES (v_claim.faucetpay_address, v_claim.reward)
+  ON CONFLICT (faucetpay_address)
+  DO UPDATE SET balance = public.claimants.balance + v_claim.reward;
+
+  RETURN jsonb_build_object(
+    'success', true,
+    'address', v_claim.faucetpay_address,
+    'reward', v_claim.reward,
+    'daily_claims', (SELECT COUNT(*) FROM public.shortlink_claims
+                     WHERE faucetpay_address = v_claim.faucetpay_address
+                     AND created_at::DATE = p_now::DATE
+                     AND status IN ('completed', 'claimed'))
+  );
+END;
+$$;
