@@ -17,17 +17,19 @@ CREATE TABLE public.claimants (
 
 ALTER TABLE public.claimants ENABLE ROW LEVEL SECURITY;
 
--- Allow anonymous inserts (for API with service_role key)
+DROP POLICY IF EXISTS "claimants_insert_anon" ON public.claimants;
 CREATE POLICY "claimants_insert_anon"
   ON public.claimants
   FOR INSERT
   WITH CHECK (true);
 
+DROP POLICY IF EXISTS "claimants_select_anon" ON public.claimants;
 CREATE POLICY "claimants_select_anon"
   ON public.claimants
   FOR SELECT
   USING (true);
 
+DROP POLICY IF EXISTS "claimants_update_anon" ON public.claimants;
 CREATE POLICY "claimants_update_anon"
   ON public.claimants
   FOR UPDATE
@@ -126,16 +128,19 @@ CREATE TABLE IF NOT EXISTS public.shortlink_claims (
 
 ALTER TABLE public.shortlink_claims ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "shortlink_claims_select_anon" ON public.shortlink_claims;
 CREATE POLICY "shortlink_claims_select_anon"
   ON public.shortlink_claims
   FOR SELECT
   USING (true);
 
+DROP POLICY IF EXISTS "shortlink_claims_insert_anon" ON public.shortlink_claims;
 CREATE POLICY "shortlink_claims_insert_anon"
   ON public.shortlink_claims
   FOR INSERT
   WITH CHECK (true);
 
+DROP POLICY IF EXISTS "shortlink_claims_update_anon" ON public.shortlink_claims;
 CREATE POLICY "shortlink_claims_update_anon"
   ON public.shortlink_claims
   FOR UPDATE
