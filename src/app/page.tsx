@@ -45,20 +45,20 @@ export default function Home() {
         <h1 className="text-4xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-yellow-400 to-orange-500">
           Crypto Faucet
         </h1>
-        <p className="text-gray-400 -mt-4">Enter your FaucetPay address to start claiming</p>
+        <p className="text-gray-400 -mt-4">Enter your FaucetPay email to start claiming</p>
         <div className="w-full max-w-md mx-auto overflow-hidden p-6 rounded-2xl bg-gradient-to-br from-purple-500 via-violet-500 to-indigo-600 shadow-xl">
           <div className="bg-white/90 backdrop-blur-sm rounded-xl p-6">
             <form onSubmit={handleStart} className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Enter your FaucetPay Email or Crypto Address
+                  Enter your FaucetPay Email
                 </label>
                 <input
                   type="text"
                   required
                   value={inputValue}
                   onChange={(e) => setInputValue(e.target.value)}
-                  placeholder="e.g. your@email.com or DAddress..."
+                  placeholder="e.g. your@email.com"
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900 text-sm focus:ring-2 focus:ring-violet-500 focus:border-transparent outline-none"
                 />
               </div>
