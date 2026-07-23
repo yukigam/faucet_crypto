@@ -117,7 +117,7 @@ $$;
 CREATE TABLE IF NOT EXISTS public.shortlink_claims (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   faucetpay_address TEXT REFERENCES public.claimants(faucetpay_address),
-  token TEXT UNIQUE NOT NULL DEFAULT encode(gen_random_bytes(16), 'hex'),
+  token TEXT UNIQUE NOT NULL DEFAULT gen_random_uuid()::text,
   status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'completed', 'claimed')),
   reward NUMERIC DEFAULT 0.00005,
   created_at TIMESTAMPTZ DEFAULT NOW(),
@@ -174,7 +174,7 @@ BEGIN
     );
   END IF;
 
-  v_token := encode(gen_random_bytes(16), 'hex');
+  v_token := gen_random_uuid()::text;
 
   INSERT INTO public.shortlink_claims (faucetpay_address, token, status, reward)
   VALUES (p_address, v_token, 'pending', 0.00005);
