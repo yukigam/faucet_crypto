@@ -4,6 +4,22 @@ import { createServerClient } from '@supabase/ssr';
 const SHRINKME_API = 'https://shrinkme.io/api';
 const SHORTLINK_REWARD = '0.00005';
 
+function extractShortUrl(raw: unknown): string | null {
+  if (typeof raw === 'string') return raw;
+  if (raw && typeof raw === 'object') {
+    const obj = raw as Record<string, unknown>;
+    return (
+      (obj.shortenedUrl as string) ??
+      (obj.shortLink as string) ??
+      (obj.short_url as string) ??
+      (obj.url as string) ??
+      (obj.link as string) ??
+      null
+    );
+  }
+  return null;
+}
+
 export async function POST(request: Request) {
   try {
     const { address } = await request.json();
@@ -68,25 +84,62 @@ export async function POST(request: Request) {
     const baseUrl = origin.startsWith('http') ? origin : `https://${origin}`;
     const callbackUrl = `${baseUrl}/api/shortlink/callback?token=${result.token}`;
 
-    // Call ShrinkMe.io API to create a shortlink that points to our callback
-    console.log('[SHORTLINK] Calling ShrinkMe API', { callbackUrl });
-    const shrinkmeRes = await fetch(`${SHRINKME_API}?api=${shrinkmeKey}&url=${encodeURIComponent(callbackUrl)}`);
-    const shrinkmeData: { status?: string; shortenedUrl?: string; error?: string } = await shrinkmeRes.json();
+    // Call ShrinkMe.io API to create a shortlink pointing to our callback
+    const apiUrl = `${SHRINKME_API}?api=${shrinkmeKey}&url=${encodeURIComponent(callbackUrl)}`;
+    console.log('[SHORTLINK] Calling ShrinkMe API', { apiUrl: apiUrl.replace(shrinkmeKey, '***') });
 
-    console.log('[SHORTLINK] ShrinkMe response:', JSON.stringify(shrinkmeData));
+    const shrinkmeRes = await fetch(apiUrl);
+    const httpStatus = shrinkmeRes.status;
+    const contentType = shrinkmeRes.headers.get('content-type') || '';
+    const rawText = await shrinkmeRes.text();
 
-    if (!shrinkmeData.shortenedUrl) {
-      console.error('[SHORTLINK] ShrinkMe API error:', shrinkmeData.error || 'No shortenedUrl returned', shrinkmeData);
+    console.log('[SHORTLINK] ShrinkMe raw response:', {
+      httpStatus,
+      contentType,
+      body: rawText.slice(0, 2000),
+    });
+
+    // Try parsing as JSON first
+    let parsed: unknown;
+    let isJson = false;
+    try {
+      parsed = JSON.parse(rawText);
+      isJson = true;
+      console.log('[SHORTLINK] ShrinkMe parsed JSON:', JSON.stringify(parsed));
+    } catch {
+      // Not JSON — treat raw text as the response
+      parsed = rawText;
+      console.log('[SHORTLINK] ShrinkMe response is not JSON, using raw text');
+    }
+
+    // Extract short URL from whatever format we got
+    const shortUrl = extractShortUrl(parsed);
+
+    if (!shortUrl) {
+      const errorDetail = isJson
+        ? JSON.stringify(parsed)
+        : rawText.slice(0, 500);
+
+      console.error('[SHORTLINK] Failed to extract short URL from response:', {
+        httpStatus,
+        contentType,
+        body: rawText.slice(0, 2000),
+      });
+
       return NextResponse.json({
         success: false,
-        error: `ShrinkMe API error: ${shrinkmeData.error || 'Failed to generate shortlink'}`,
+        error: `ShrinkMe API error (HTTP ${httpStatus}): ${errorDetail}`,
+        shrinkme_raw: rawText.slice(0, 1000),
+        shrinkme_http_status: httpStatus,
       }, { status: 502 });
     }
+
+    console.log('[SHORTLINK] Short URL generated:', shortUrl);
 
     return NextResponse.json({
       success: true,
       token: result.token,
-      redirectUrl: shrinkmeData.shortenedUrl,
+      redirectUrl: shortUrl,
       reward: SHORTLINK_REWARD,
       daily_claims: result.daily_claims,
       daily_limit: result.daily_limit,
