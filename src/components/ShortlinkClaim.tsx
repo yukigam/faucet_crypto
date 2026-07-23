@@ -13,6 +13,7 @@ export default function ShortlinkClaim({ address }: { address: string }) {
   const [message, setMessage] = useState('');
   const [messageType, setMessageType] = useState<MessageType>('info');
   const [loading, setLoading] = useState(false);
+  const [redirecting, setRedirecting] = useState(false);
   const [dailyClaims, setDailyClaims] = useState(0);
   const [limitReached, setLimitReached] = useState(false);
 
@@ -75,9 +76,9 @@ export default function ShortlinkClaim({ address }: { address: string }) {
         JSON.stringify({ date: new Date().toDateString(), count: data.daily_claims || 0 })
       );
 
-      // Open the shortlink URL in a new window
-      window.open(data.redirectUrl, '_blank', 'noopener,noreferrer');
-      showMessage('Shortlink opened in new tab. Complete it to earn!', 'success');
+      // Redirect user's browser to the ShrinkMe shortlink
+      setRedirecting(true);
+      window.location.href = data.redirectUrl;
     } catch {
       showMessage('❌ Network error. Check your connection.', 'error');
     } finally {
@@ -123,14 +124,14 @@ export default function ShortlinkClaim({ address }: { address: string }) {
 
         <button
           onClick={startShortlink}
-          disabled={loading || isLimitReached}
+          disabled={loading || redirecting || isLimitReached}
           className={`w-full py-3 px-6 rounded-lg font-semibold text-lg transition-all duration-200 ${
-            loading || isLimitReached
+            loading || redirecting || isLimitReached
               ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
               : 'bg-gradient-to-r from-cyan-400 to-blue-500 text-white hover:scale-105 hover:shadow-lg active:scale-95'
           }`}
         >
-          {loading ? 'Processing...' : isLimitReached ? 'Limit Reached' : 'Start Shortlink →'}
+          {loading || redirecting ? 'Redirecting...' : isLimitReached ? 'Limit Reached' : 'Start Shortlink →'}
         </button>
 
         {isLimitReached && (

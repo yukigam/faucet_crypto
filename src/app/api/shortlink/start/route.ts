@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 
+const SHRINKME_API = 'https://shrinkme.io/api';
 const SHORTLINK_REWARD = '0.00005';
 
 export async function POST(request: Request) {
@@ -9,6 +10,15 @@ export async function POST(request: Request) {
 
     if (!address || typeof address !== 'string') {
       return NextResponse.json({ error: 'Address is required' }, { status: 400 });
+    }
+
+    const shrinkmeKey = process.env.SHRINKME_API_KEY;
+    if (!shrinkmeKey) {
+      console.error('[SHORTLINK] SHRINKME_API_KEY not configured');
+      return NextResponse.json({
+        success: false,
+        error: 'ShrinkMe API key not configured. Add SHRINKME_API_KEY to your env variables.',
+      }, { status: 500 });
     }
 
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -53,39 +63,30 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: result.message || 'Failed to start shortlink' }, { status: 500 });
     }
 
-    // Build the callback URL the shortlink service will redirect to
+    // Build the callback URL ShrinkMe will redirect to after the ad
     const origin = request.headers.get('origin') || request.headers.get('host') || 'http://localhost:3000';
     const baseUrl = origin.startsWith('http') ? origin : `https://${origin}`;
     const callbackUrl = `${baseUrl}/api/shortlink/callback?token=${result.token}`;
 
-    // If a shortlink service API is configured, generate a real shortlink
-    const shortlinkApiUrl = process.env.SHORTLINK_API_URL;
-    const shortlinkApiKey = process.env.SHORTLINK_API_KEY;
-    let redirectUrl = callbackUrl;
+    // Call ShrinkMe.io API to create a shortlink that points to our callback
+    console.log('[SHORTLINK] Calling ShrinkMe API', { callbackUrl });
+    const shrinkmeRes = await fetch(`${SHRINKME_API}?api=${shrinkmeKey}&url=${encodeURIComponent(callbackUrl)}`);
+    const shrinkmeData: { status?: string; shortenedUrl?: string; error?: string } = await shrinkmeRes.json();
 
-    if (shortlinkApiUrl && shortlinkApiKey) {
-      try {
-        const slForm = new URLSearchParams();
-        slForm.append('api_key', shortlinkApiKey);
-        slForm.append('url', callbackUrl);
-        const slRes = await fetch(shortlinkApiUrl, {
-          method: 'POST',
-          body: slForm.toString(),
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        });
-        const slData: { shortLink?: string; status?: string } = await slRes.json();
-        if (slData.shortLink) {
-          redirectUrl = slData.shortLink;
-        }
-      } catch (e) {
-        console.warn('[SHORTLINK] Failed to generate shortlink via API, using direct:', e);
-      }
+    console.log('[SHORTLINK] ShrinkMe response:', JSON.stringify(shrinkmeData));
+
+    if (!shrinkmeData.shortenedUrl) {
+      console.error('[SHORTLINK] ShrinkMe API error:', shrinkmeData.error || 'No shortenedUrl returned', shrinkmeData);
+      return NextResponse.json({
+        success: false,
+        error: `ShrinkMe API error: ${shrinkmeData.error || 'Failed to generate shortlink'}`,
+      }, { status: 502 });
     }
 
     return NextResponse.json({
       success: true,
       token: result.token,
-      redirectUrl,
+      redirectUrl: shrinkmeData.shortenedUrl,
       reward: SHORTLINK_REWARD,
       daily_claims: result.daily_claims,
       daily_limit: result.daily_limit,
