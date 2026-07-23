@@ -2,7 +2,7 @@
 
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { Suspense } from 'react';
+import { Suspense, useEffect } from 'react';
 import AdBanner from '@/components/AdBanner';
 
 function CallbackContent() {
@@ -12,6 +12,10 @@ function CallbackContent() {
   const errorMsg = params.get('msg');
   const dailyClaims = params.get('daily_claims');
   const warning = params.get('warning');
+
+  useEffect(() => {
+    console.log('[SHORTLINK_PAGE] Received params:', Object.fromEntries(params.entries()));
+  }, [params]);
 
   return (
     <main className="min-h-screen flex flex-col items-center justify-center p-6 gap-8">

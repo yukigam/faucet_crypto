@@ -7,23 +7,28 @@ const DECIMAL_AMOUNT = '0.00005';
 const CURRENCY = 'TON';
 
 export async function GET(request: Request) {
-  try {
-    const { searchParams } = new URL(request.url);
-    const token = searchParams.get('token');
+  const { searchParams } = new URL(request.url);
+  const token = searchParams.get('token');
 
+  console.log('[SHORTLINK_CALLBACK] Received callback', { token: token?.slice(0, 8) + '...', url: request.url });
+
+  try {
     if (!token) {
-      return NextResponse.redirect(new URL('/shortlink/callback?status=error&msg=Missing token', request.url));
+      console.error('[SHORTLINK_CALLBACK] Missing token');
+      return NextResponse.redirect(new URL('/shortlink/callback?status=error&msg=Missing+token', request.url));
     }
 
     const apiKey = process.env.FAUCETPAY_API_KEY;
     if (!apiKey) {
-      return NextResponse.redirect(new URL('/shortlink/callback?status=error&msg=Payment not configured', request.url));
+      console.error('[SHORTLINK_CALLBACK] FaucetPay API key not configured');
+      return NextResponse.redirect(new URL('/shortlink/callback?status=error&msg=Payment+not+configured', request.url));
     }
 
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
     if (!supabaseUrl || !supabaseKey) {
-      return NextResponse.redirect(new URL('/shortlink/callback?status=error&msg=Database not configured', request.url));
+      console.error('[SHORTLINK_CALLBACK] Supabase credentials not configured');
+      return NextResponse.redirect(new URL('/shortlink/callback?status=error&msg=Database+not+configured', request.url));
     }
 
     const supabase = createServerClient(supabaseUrl, supabaseKey, {
@@ -31,15 +36,19 @@ export async function GET(request: Request) {
     });
 
     const now = new Date().toISOString();
+    console.log('[SHORTLINK_CALLBACK] Calling shortlink_claim_complete RPC', { token: token.slice(0, 8) + '...', now });
+
     const { data, error } = await supabase.rpc('shortlink_claim_complete', {
       p_token: token,
       p_now: now,
     });
 
     if (error) {
-      console.error('[SHORTLINK_CALLBACK] RPC error:', error);
+      console.error('[SHORTLINK_CALLBACK] RPC error:', { message: error.message, details: error.details, hint: error.hint, code: error.code });
       return NextResponse.redirect(new URL(`/shortlink/callback?status=error&msg=${encodeURIComponent(error.message)}`, request.url));
     }
+
+    console.log('[SHORTLINK_CALLBACK] RPC result:', JSON.stringify(data));
 
     const result = data as {
       success: boolean;
@@ -51,8 +60,11 @@ export async function GET(request: Request) {
     };
 
     if (!result.success) {
+      console.error('[SHORTLINK_CALLBACK] RPC returned failure:', { error: result.error, message: result.message });
       return NextResponse.redirect(new URL(`/shortlink/callback?status=error&msg=${encodeURIComponent(result.message || 'Verification failed')}`, request.url));
     }
+
+    console.log('[SHORTLINK_CALLBACK] Claim verified, sending FaucetPay payout', { to: result.address, amount: DECIMAL_AMOUNT });
 
     // Send payment via FaucetPay
     const fpForm = new URLSearchParams();
@@ -61,11 +73,6 @@ export async function GET(request: Request) {
     fpForm.append('amount', SATOSHI_AMOUNT);
     fpForm.append('currency', CURRENCY);
 
-    console.log('[SHORTLINK_CALLBACK] Sending FaucetPay payout:', {
-      to: result.address,
-      amount: DECIMAL_AMOUNT,
-    });
-
     const fpRes = await fetch(FAUCETPAY_API, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -73,7 +80,7 @@ export async function GET(request: Request) {
     });
 
     const rawText = await fpRes.text();
-    console.log('[SHORTLINK_CALLBACK] FaucetPay response:', rawText);
+    console.log('[SHORTLINK_CALLBACK] FaucetPay raw response:', rawText);
 
     let fpSuccess = false;
     let fpId: string | undefined;
@@ -81,11 +88,13 @@ export async function GET(request: Request) {
       const fpData = JSON.parse(rawText);
       fpSuccess = fpData.status === 200;
       fpId = fpData.id;
+      console.log('[SHORTLINK_CALLBACK] FaucetPay parsed:', { status: fpData.status, id: fpData.id, message: fpData.message });
     } catch {
-      console.warn('[SHORTLINK_CALLBACK] FaucetPay non-JSON response');
+      console.error('[SHORTLINK_CALLBACK] FaucetPay non-JSON response');
     }
 
     if (fpSuccess) {
+      console.log('[SHORTLINK_CALLBACK] Payout successful', { txid: fpId });
       return NextResponse.redirect(new URL(
         `/shortlink/callback?status=success&reward=${DECIMAL_AMOUNT}&daily_claims=${result.daily_claims}&txid=${fpId || ''}`,
         request.url
@@ -93,13 +102,14 @@ export async function GET(request: Request) {
     }
 
     // Payment failed but DB recorded — still return success with warning
+    console.warn('[SHORTLINK_CALLBACK] Payout failed but DB recorded');
     return NextResponse.redirect(new URL(
       `/shortlink/callback?status=success&reward=${DECIMAL_AMOUNT}&daily_claims=${result.daily_claims}&warning=Payment+may+be+delayed`,
       request.url
     ));
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Internal error';
-    console.error('[SHORTLINK_CALLBACK] Unhandled error:', err);
+    console.error('[SHORTLINK_CALLBACK] Unhandled exception:', err);
     return NextResponse.redirect(new URL(`/shortlink/callback?status=error&msg=${encodeURIComponent(message)}`, request.url));
   }
 }

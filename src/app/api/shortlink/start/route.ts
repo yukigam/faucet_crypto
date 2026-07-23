@@ -56,7 +56,7 @@ export async function POST(request: Request) {
     // Build the callback URL the shortlink service will redirect to
     const origin = request.headers.get('origin') || request.headers.get('host') || 'http://localhost:3000';
     const baseUrl = origin.startsWith('http') ? origin : `https://${origin}`;
-    const callbackUrl = `${baseUrl}/shortlink/callback?token=${result.token}`;
+    const callbackUrl = `${baseUrl}/api/shortlink/callback?token=${result.token}`;
 
     // If a shortlink service API is configured, generate a real shortlink
     const shortlinkApiUrl = process.env.SHORTLINK_API_URL;
