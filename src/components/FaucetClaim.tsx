@@ -4,9 +4,9 @@ import { useEffect, useState, useRef, useCallback } from 'react';
 import { Turnstile, type TurnstileInstance } from '@marsidev/react-turnstile';
 import AdBanner from './AdBanner';
 
-const REWARD = '0.00002';
+const REWARD = '0.000002';
 const CURRENCY = 'TON';
-const COOLDOWN_MS = 60_000;
+const COOLDOWN_MS = 10_000;
 
 type MessageType = 'success' | 'error' | 'info';
 
