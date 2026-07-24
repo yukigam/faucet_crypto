@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import AdBanner from './AdBanner';
 
-const REWARD = '0.00005';
+const REWARD = '0.0005';
 const CURRENCY = 'TON';
 const SHORTLINK_DAILY_LIMIT = 10;
 
