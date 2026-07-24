@@ -79,7 +79,7 @@ BEGIN
     RETURN jsonb_build_object(
       'success', false,
       'error', 'daily_limit',
-      'message', 'Өнөөдрийн лимит дууссан, маргааш дахин оролдоно уу',
+      'message', 'Daily limit reached. Come back tomorrow!',
       'daily_claims', v_daily_count,
       'daily_limit', v_daily_limit
     );
@@ -173,7 +173,7 @@ BEGIN
     RETURN jsonb_build_object(
       'success', false,
       'error', 'daily_limit',
-      'message', 'Өнөөдрийн shortlink лимит дууссан',
+      'message', 'Shortlink limit reached. Come back tomorrow!',
       'daily_claims', v_daily_shortlink,
       'daily_limit', v_daily_limit
     );

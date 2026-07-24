@@ -63,7 +63,7 @@ export default function ShortlinkClaim({ address }: { address: string }) {
             `shortlink_count_${address}`,
             JSON.stringify({ date: new Date().toDateString(), count: data.daily_claims })
           );
-          showMessage('Өнөөдрийн shortlink лимит дууссан, маргааш дахин ирээрэй', 'info');
+          showMessage('Shortlink limit reached. Come back tomorrow!', 'info');
           return;
         }
         showMessage('❌ ' + (data.error || 'Failed to start'), 'error');
@@ -136,7 +136,7 @@ export default function ShortlinkClaim({ address }: { address: string }) {
 
         {isLimitReached && (
           <div className="border rounded-lg px-4 py-3 text-sm font-medium bg-red-100 border-red-300 text-red-700">
-            Өнөөдрийн shortlink лимит дууссан, маргааш дахин ирээрэй
+            Shortlink limit reached. Come back tomorrow!
           </div>
         )}
 

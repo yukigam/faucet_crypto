@@ -97,7 +97,7 @@ export default function FaucetClaim({ address }: { address: string }) {
           setDailyClaims(data.daily_claims);
           setDailyLimit(data.daily_limit);
           localStorage.setItem(`limit_${address}`, new Date().toDateString());
-          showMessage('Та өнөөдрийн лимитээ дуусгасан, маргааш дахин ирээрэй', 'info');
+          showMessage('Daily limit reached. Come back tomorrow!', 'info');
           return;
         }
         const errorText = data.error || 'Something went wrong.';
@@ -184,7 +184,7 @@ export default function FaucetClaim({ address }: { address: string }) {
 
         {isLimitReached && (
           <div className="border rounded-lg px-4 py-3 text-sm font-medium bg-red-100 border-red-300 text-red-700">
-            Та өнөөдрийн лимитээ дуусгасан, маргааш дахин ирээрэй
+            Daily limit reached. Come back tomorrow!
           </div>
         )}
 
