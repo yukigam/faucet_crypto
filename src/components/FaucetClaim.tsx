@@ -154,7 +154,7 @@ export default function FaucetClaim({ address }: { address: string }) {
             Reward: {REWARD} {CURRENCY} per claim
           </p>
           <p className="text-xs text-yellow-600 mt-1">
-            Өдөрт 200 удаа авах боломжтой
+            200 claims per day
           </p>
         </div>
 
