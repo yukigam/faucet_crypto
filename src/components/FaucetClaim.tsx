@@ -18,7 +18,7 @@ export default function FaucetClaim({ address }: { address: string }) {
   const [messageType, setMessageType] = useState<MessageType>('info');
   const [balance, setBalance] = useState<number | null>(null);
   const [dailyClaims, setDailyClaims] = useState<number | undefined>(undefined);
-  const [dailyLimit, setDailyLimit] = useState<number | undefined>(undefined);
+  const [dailyLimit, setDailyLimit] = useState<number>(200);
   const [limitReached, setLimitReached] = useState(false);
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
 
@@ -144,16 +144,17 @@ export default function FaucetClaim({ address }: { address: string }) {
           <p className="text-3xl font-bold text-gray-900">
             {balance !== null ? balance.toFixed(4) : '—'}
           </p>
-          {dailyLimit !== undefined && (
-            <p className="text-xs text-gray-400 mt-1">
-              Today: {dailyClaims ?? 0}/{dailyLimit}
-            </p>
-          )}
+          <p className="text-xs text-gray-400 mt-1">
+            Today: {dailyClaims ?? 0}/{dailyLimit}
+          </p>
         </div>
 
         <div className="text-center bg-yellow-50 border border-yellow-200 rounded-lg py-2 px-4">
           <p className="text-sm font-semibold text-yellow-800">
             Reward: {REWARD} {CURRENCY} per claim
+          </p>
+          <p className="text-xs text-yellow-600 mt-1">
+            Өдөрт 200 удаа авах боломжтой
           </p>
         </div>
 
