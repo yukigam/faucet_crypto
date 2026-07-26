@@ -19,6 +19,8 @@ export default function FaucetClaim({ address }: { address: string }) {
   const [balance, setBalance] = useState<number | null>(null);
   const [dailyClaims, setDailyClaims] = useState<number | undefined>(undefined);
   const [dailyLimit, setDailyLimit] = useState<number>(20);
+  const [bonusClaims, setBonusClaims] = useState<number>(0);
+  const [effectiveLimit, setEffectiveLimit] = useState<number>(20);
   const [limitReached, setLimitReached] = useState(false);
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
 
@@ -96,8 +98,10 @@ export default function FaucetClaim({ address }: { address: string }) {
           setLimitReached(true);
           setDailyClaims(data.daily_claims);
           setDailyLimit(data.daily_limit);
+          setBonusClaims(data.bonus_claims ?? 0);
+          setEffectiveLimit(data.effective_limit ?? data.daily_limit);
           localStorage.setItem(`limit_${address}`, new Date().toDateString());
-          showMessage('Daily limit reached. Come back tomorrow!', 'info');
+          showMessage('Daily limit reached. Complete a shortlink to unlock more claims!', 'info');
           return;
         }
         const errorText = data.error || 'Something went wrong.';
@@ -108,6 +112,8 @@ export default function FaucetClaim({ address }: { address: string }) {
       setBalance(data.balance);
       setDailyClaims(data.daily_claims);
       setDailyLimit(data.daily_limit);
+      setBonusClaims(data.bonus_claims ?? 0);
+      setEffectiveLimit(data.effective_limit ?? data.daily_limit);
       showMessage(`✅ Successfully claimed ${REWARD} ${CURRENCY}!`, 'success');
       localStorage.setItem(`cooldown_${address}`, String(Date.now()));
       setCountdown(COOLDOWN_MS);
@@ -145,7 +151,10 @@ export default function FaucetClaim({ address }: { address: string }) {
             {balance !== null ? balance.toFixed(4) : '—'}
           </p>
           <p className="text-xs text-gray-400 mt-1">
-            Today: {dailyClaims ?? 0}/{dailyLimit}
+            Today: {dailyClaims ?? 0}/{effectiveLimit}
+            {bonusClaims > 0 && (
+              <span className="text-green-500"> (+{bonusClaims} bonus)</span>
+            )}
           </p>
         </div>
 
@@ -154,7 +163,7 @@ export default function FaucetClaim({ address }: { address: string }) {
             Reward: {REWARD} {CURRENCY} per claim
           </p>
           <p className="text-xs text-yellow-600 mt-1">
-            20 claims per day
+            20 claims per day — Complete shortlinks for bonus claims!
           </p>
         </div>
 
@@ -184,7 +193,7 @@ export default function FaucetClaim({ address }: { address: string }) {
 
         {isLimitReached && (
           <div className="border rounded-lg px-4 py-3 text-sm font-medium bg-red-100 border-red-300 text-red-700">
-            Daily limit reached. Come back tomorrow!
+            Daily limit reached. Complete a shortlink to unlock more claims!
           </div>
         )}
 

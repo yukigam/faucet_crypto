@@ -55,6 +55,8 @@ export async function GET(request: Request) {
       address?: string;
       reward?: number;
       daily_claims?: number;
+      bonus_claims_added?: number;
+      total_bonus_claims?: number;
       error?: string;
       message?: string;
     };
@@ -96,7 +98,7 @@ export async function GET(request: Request) {
     if (fpSuccess) {
       console.log('[SHORTLINK_CALLBACK] Payout successful', { txid: fpId });
       return NextResponse.redirect(new URL(
-        `/shortlink/callback?status=success&reward=${DECIMAL_AMOUNT}&daily_claims=${result.daily_claims}&txid=${fpId || ''}`,
+        `/shortlink/callback?status=success&reward=${DECIMAL_AMOUNT}&daily_claims=${result.daily_claims}&bonus_added=${result.bonus_claims_added || 0}&txid=${fpId || ''}`,
         request.url
       ));
     }
@@ -104,7 +106,7 @@ export async function GET(request: Request) {
     // Payment failed but DB recorded — still return success with warning
     console.warn('[SHORTLINK_CALLBACK] Payout failed but DB recorded');
     return NextResponse.redirect(new URL(
-      `/shortlink/callback?status=success&reward=${DECIMAL_AMOUNT}&daily_claims=${result.daily_claims}&warning=Payment+may+be+delayed`,
+      `/shortlink/callback?status=success&reward=${DECIMAL_AMOUNT}&daily_claims=${result.daily_claims}&bonus_added=${result.bonus_claims_added || 0}&warning=Payment+may+be+delayed`,
       request.url
     ));
   } catch (err) {

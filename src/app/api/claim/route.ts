@@ -69,6 +69,8 @@ export async function POST(request: Request) {
       balance?: number;
       daily_claims?: number;
       daily_limit?: number;
+      bonus_claims?: number;
+      effective_limit?: number;
       error?: string;
       message?: string;
     };
@@ -77,9 +79,11 @@ export async function POST(request: Request) {
       if (result.error === 'daily_limit') {
         return NextResponse.json({
           success: false,
-          error: result.message || 'Өнөөдрийн лимит дууссан',
+          error: result.message || 'Daily limit reached',
           daily_claims: result.daily_claims,
           daily_limit: result.daily_limit,
+          bonus_claims: result.bonus_claims,
+          effective_limit: result.effective_limit,
         }, { status: 429 });
       }
       if (result.error === 'cooldown') {
@@ -123,6 +127,8 @@ export async function POST(request: Request) {
         currency: CURRENCY,
         daily_claims: result.daily_claims,
         daily_limit: result.daily_limit,
+        bonus_claims: result.bonus_claims,
+        effective_limit: result.effective_limit,
         warning: 'Claim recorded but payment may be delayed',
         message: `Successfully claimed ${DECIMAL_AMOUNT} ${CURRENCY}!`,
       });
@@ -142,6 +148,8 @@ export async function POST(request: Request) {
         currency: CURRENCY,
         daily_claims: result.daily_claims,
         daily_limit: result.daily_limit,
+        bonus_claims: result.bonus_claims,
+        effective_limit: result.effective_limit,
         warning: `Payment pending: ${exactError}`,
         message: `Successfully claimed ${DECIMAL_AMOUNT} ${CURRENCY}!`,
       });
@@ -155,6 +163,8 @@ export async function POST(request: Request) {
       txid: fpData.id,
       daily_claims: result.daily_claims,
       daily_limit: result.daily_limit,
+      bonus_claims: result.bonus_claims,
+      effective_limit: result.effective_limit,
       message: `Successfully claimed ${DECIMAL_AMOUNT} ${CURRENCY}!`,
     });
   } catch (err) {

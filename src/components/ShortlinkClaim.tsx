@@ -148,6 +148,7 @@ export default function ShortlinkClaim({ address }: { address: string }) {
 
         <div className="text-xs text-gray-400 text-center space-y-1">
           <p>• Complete the shortlink to receive {REWARD} {CURRENCY}</p>
+          <p>• Each shortlink unlocks +10 bonus faucet claims!</p>
           <p>• Limit: {SHORTLINK_DAILY_LIMIT} shortlinks per day</p>
         </div>
 

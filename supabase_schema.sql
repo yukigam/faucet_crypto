@@ -11,9 +11,12 @@ CREATE TABLE public.claimants (
   last_claim_at TIMESTAMPTZ,
   daily_claim_count INT DEFAULT 0,
   last_claim_date DATE DEFAULT NULL,
+  bonus_claims INT DEFAULT 0,
   referred_by TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+ALTER TABLE public.claimants ADD COLUMN IF NOT EXISTS bonus_claims INT DEFAULT 0;
 
 ALTER TABLE public.claimants ENABLE ROW LEVEL SECURITY;
 
@@ -49,14 +52,16 @@ DECLARE
   v_last TIMESTAMPTZ;
   v_balance NUMERIC;
   v_daily_count INT;
+  v_bonus INT;
   v_last_date DATE;
   v_today DATE;
   v_daily_limit INT := 20;
+  v_effective_limit INT;
 BEGIN
   v_today := p_now::DATE;
 
-  SELECT last_claim_at, balance, daily_claim_count, last_claim_date
-  INTO v_last, v_balance, v_daily_count, v_last_date
+  SELECT last_claim_at, balance, daily_claim_count, last_claim_date, bonus_claims
+  INTO v_last, v_balance, v_daily_count, v_last_date, v_bonus
   FROM public.claimants
   WHERE faucetpay_address = p_address;
 
@@ -69,37 +74,47 @@ BEGIN
     );
   END IF;
 
-  -- Reset daily counter if new day
+  -- Reset daily counters if new day
   IF v_last_date IS NULL OR v_last_date < v_today THEN
     v_daily_count := 0;
+    v_bonus := 0;
   END IF;
 
-  -- Daily limit check
-  IF v_daily_count >= v_daily_limit THEN
+  v_effective_limit := v_daily_limit + v_bonus;
+
+  -- Daily limit check (includes bonus claims from shortlinks)
+  IF v_daily_count >= v_effective_limit THEN
     RETURN jsonb_build_object(
       'success', false,
       'error', 'daily_limit',
-      'message', 'Daily limit reached. Come back tomorrow!',
+      'message', 'Daily limit reached. Complete a shortlink to unlock more claims!',
       'daily_claims', v_daily_count,
-      'daily_limit', v_daily_limit
+      'daily_limit', v_daily_limit,
+      'bonus_claims', v_bonus,
+      'effective_limit', v_effective_limit
     );
   END IF;
 
-  INSERT INTO public.claimants (faucetpay_address, balance, last_claim_at, daily_claim_count, last_claim_date, referred_by)
-  VALUES (p_address, 0.000002, p_now, 1, v_today, p_referrer)
+  INSERT INTO public.claimants (faucetpay_address, balance, last_claim_at, daily_claim_count, last_claim_date, bonus_claims, referred_by)
+  VALUES (p_address, 0.000002, p_now, 1, v_today, COALESCE(v_bonus, 0), p_referrer)
   ON CONFLICT (faucetpay_address)
   DO UPDATE SET
     balance = public.claimants.balance + 0.000002,
     last_claim_at = p_now,
     daily_claim_count = public.claimants.daily_claim_count + 1,
     last_claim_date = v_today,
+    bonus_claims = CASE
+      WHEN public.claimants.last_claim_date IS NULL OR public.claimants.last_claim_date < v_today
+      THEN 0
+      ELSE public.claimants.bonus_claims
+    END,
     referred_by = CASE
       WHEN public.claimants.referred_by IS NULL AND p_referrer IS NOT NULL
       THEN p_referrer
       ELSE public.claimants.referred_by
     END;
 
-  SELECT balance, daily_claim_count INTO v_balance, v_daily_count
+  SELECT balance, daily_claim_count, bonus_claims INTO v_balance, v_daily_count, v_bonus
   FROM public.claimants
   WHERE faucetpay_address = p_address;
 
@@ -107,7 +122,9 @@ BEGIN
     'success', true,
     'balance', v_balance,
     'daily_claims', v_daily_count,
-    'daily_limit', v_daily_limit
+    'daily_limit', v_daily_limit,
+    'bonus_claims', v_bonus,
+    'effective_limit', v_daily_limit + v_bonus
   );
 END;
 $$;
@@ -193,7 +210,7 @@ BEGIN
 END;
 $$;
 
--- RPC: complete a shortlink claim (mark done, update balance)
+-- RPC: complete a shortlink claim (mark done, update balance, grant bonus faucet claims)
 CREATE OR REPLACE FUNCTION public.shortlink_claim_complete(
   p_token TEXT,
   p_now TIMESTAMPTZ
@@ -204,6 +221,7 @@ SECURITY DEFINER SET search_path = ''
 AS $$
 DECLARE
   v_claim RECORD;
+  v_bonus_added INT := 10;
 BEGIN
   SELECT * INTO v_claim
   FROM public.shortlink_claims
@@ -222,15 +240,19 @@ BEGIN
   SET status = 'completed', completed_at = p_now
   WHERE id = v_claim.id;
 
-  INSERT INTO public.claimants (faucetpay_address, balance)
-  VALUES (v_claim.faucetpay_address, v_claim.reward)
+  INSERT INTO public.claimants (faucetpay_address, balance, bonus_claims)
+  VALUES (v_claim.faucetpay_address, v_claim.reward, v_bonus_added)
   ON CONFLICT (faucetpay_address)
-  DO UPDATE SET balance = public.claimants.balance + v_claim.reward;
+  DO UPDATE SET
+    balance = public.claimants.balance + v_claim.reward,
+    bonus_claims = public.claimants.bonus_claims + v_bonus_added;
 
   RETURN jsonb_build_object(
     'success', true,
     'address', v_claim.faucetpay_address,
     'reward', v_claim.reward,
+    'bonus_claims_added', v_bonus_added,
+    'total_bonus_claims', (SELECT COALESCE(bonus_claims, 0) FROM public.claimants WHERE faucetpay_address = v_claim.faucetpay_address),
     'daily_claims', (SELECT COUNT(*) FROM public.shortlink_claims
                      WHERE faucetpay_address = v_claim.faucetpay_address
                      AND created_at::DATE = p_now::DATE

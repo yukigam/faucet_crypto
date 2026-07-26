@@ -12,6 +12,7 @@ function CallbackContent() {
   const errorMsg = params.get('msg');
   const dailyClaims = params.get('daily_claims');
   const warning = params.get('warning');
+  const bonusAdded = params.get('bonus_added');
 
   useEffect(() => {
     console.log('[SHORTLINK_PAGE] Received params:', Object.fromEntries(params.entries()));
@@ -32,6 +33,11 @@ function CallbackContent() {
               {dailyClaims && (
                 <p className="text-sm text-gray-500">
                   Today&apos;s shortlink claims: {dailyClaims}
+                </p>
+              )}
+              {bonusAdded && Number(bonusAdded) > 0 && (
+                <p className="text-sm font-semibold text-green-600">
+                  +{bonusAdded} bonus faucet claims unlocked!
                 </p>
               )}
               {warning && (
