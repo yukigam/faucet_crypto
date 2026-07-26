@@ -6,7 +6,7 @@ import AdBanner from './AdBanner';
 
 const REWARD = '0.000002';
 const CURRENCY = 'TON';
-const COOLDOWN_MS = 10_000;
+const COOLDOWN_MS = 60_000;
 
 type MessageType = 'success' | 'error' | 'info';
 
@@ -18,7 +18,7 @@ export default function FaucetClaim({ address }: { address: string }) {
   const [messageType, setMessageType] = useState<MessageType>('info');
   const [balance, setBalance] = useState<number | null>(null);
   const [dailyClaims, setDailyClaims] = useState<number | undefined>(undefined);
-  const [dailyLimit, setDailyLimit] = useState<number>(200);
+  const [dailyLimit, setDailyLimit] = useState<number>(20);
   const [limitReached, setLimitReached] = useState(false);
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
 
@@ -154,7 +154,7 @@ export default function FaucetClaim({ address }: { address: string }) {
             Reward: {REWARD} {CURRENCY} per claim
           </p>
           <p className="text-xs text-yellow-600 mt-1">
-            200 claims per day
+            20 claims per day
           </p>
         </div>
 

@@ -51,7 +51,7 @@ DECLARE
   v_daily_count INT;
   v_last_date DATE;
   v_today DATE;
-  v_daily_limit INT := 200;
+  v_daily_limit INT := 20;
 BEGIN
   v_today := p_now::DATE;
 
@@ -60,12 +60,12 @@ BEGIN
   FROM public.claimants
   WHERE faucetpay_address = p_address;
 
-  -- Cooldown check: 10 seconds between claims
-  IF v_last IS NOT NULL AND p_now < v_last + INTERVAL '10 seconds' THEN
+  -- Cooldown check: 1 minute between claims
+  IF v_last IS NOT NULL AND p_now < v_last + INTERVAL '1 minute' THEN
     RETURN jsonb_build_object(
       'success', false,
       'error', 'cooldown',
-      'message', 'Please wait 10 seconds between claims'
+      'message', 'Please wait 1 minute between claims'
     );
   END IF;
 
