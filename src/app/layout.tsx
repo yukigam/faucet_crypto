@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import AdsterraPopunder from "@/components/AdsterraPopunder";
+import { AdBlockProvider } from "@/contexts/AdBlockContext";
+import BlockerWarning from "@/components/BlockerWarning";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -26,8 +28,11 @@ export default function RootLayout({
   return (
     <html lang="en" className={`${geistSans.variable} ${geistMono.variable}`}>
       <body className="bg-gray-950 text-white min-h-screen">
-        {children}
-        <AdsterraPopunder />
+        <AdBlockProvider>
+          {children}
+          <BlockerWarning />
+          <AdsterraPopunder />
+        </AdBlockProvider>
       </body>
     </html>
   );

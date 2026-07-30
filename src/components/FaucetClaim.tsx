@@ -3,6 +3,7 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { Turnstile, type TurnstileInstance } from '@marsidev/react-turnstile';
 import AdBanner from './AdBanner';
+import { useAdBlock } from '@/contexts/AdBlockContext';
 
 const REWARD = '0.000002';
 const CURRENCY = 'TON';
@@ -11,6 +12,7 @@ const COOLDOWN_MS = 60_000;
 type MessageType = 'success' | 'error' | 'info';
 
 export default function FaucetClaim({ address }: { address: string }) {
+  const { detected: adBlockDetected, checking: adBlockChecking } = useAdBlock();
   const turnstileRef = useRef<TurnstileInstance>(null);
   const [countdown, setCountdown] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -126,7 +128,7 @@ export default function FaucetClaim({ address }: { address: string }) {
   };
 
   const isCooldown = countdown > 0;
-  const isLimitReached = limitReached;
+  const isLimitReached = limitReached || (adBlockDetected && !adBlockChecking);
 
   const messageStyles = {
     success: 'bg-green-100 border-green-300 text-green-800',
@@ -136,11 +138,13 @@ export default function FaucetClaim({ address }: { address: string }) {
 
   const buttonLabel = loading
     ? 'Processing...'
-    : isLimitReached
-      ? 'Limit Reached'
-      : isCooldown
-        ? `Wait ${minutes}:${seconds}`
-        : `Claim ${REWARD} ${CURRENCY}`;
+    : adBlockDetected
+      ? 'Shields Detected'
+      : isLimitReached
+        ? 'Limit Reached'
+        : isCooldown
+          ? `Wait ${minutes}:${seconds}`
+          : `Claim ${REWARD} ${CURRENCY}`;
 
   return (
     <div className="w-full max-w-md mx-auto overflow-hidden p-6 rounded-2xl bg-gradient-to-br from-yellow-400 via-orange-400 to-red-500 shadow-xl">
@@ -191,7 +195,7 @@ export default function FaucetClaim({ address }: { address: string }) {
           {buttonLabel}
         </button>
 
-        {isLimitReached && (
+        {isLimitReached && !adBlockDetected && (
           <div className="border rounded-lg px-4 py-3 text-sm font-medium bg-red-100 border-red-300 text-red-700">
             Daily limit reached. Complete a shortlink to unlock more claims!
           </div>
