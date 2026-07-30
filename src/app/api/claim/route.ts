@@ -7,7 +7,34 @@ const SATOSHI_AMOUNT = '200';
 const DECIMAL_AMOUNT = '0.000002';
 const CURRENCY = 'TON';
 
+function getIP(request: Request): string {
+  return (
+    request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
+    request.headers.get('x-real-ip') ||
+    request.headers.get('cf-connecting-ip') ||
+    'unknown'
+  );
+}
+
+async function logClaim(supabase: ReturnType<typeof createServerClient>, log: {
+  faucetpay_address: string;
+  ip_address: string;
+  user_agent: string;
+  turnstile_passed: boolean;
+  success: boolean;
+  error_type: string | null;
+}) {
+  try {
+    await supabase.from('claim_log').insert(log);
+  } catch (e) {
+    console.error('[CLAIM] Failed to log claim:', e);
+  }
+}
+
 export async function POST(request: Request) {
+  const ip = getIP(request);
+  const userAgent = request.headers.get('user-agent') || 'unknown';
+
   try {
     const { address, turnstileToken } = await request.json();
 
@@ -15,8 +42,54 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'FaucetPay address is required' }, { status: 400 });
     }
 
-    // Verify Turnstile captcha
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (!supabaseUrl || !supabaseKey) {
+      return NextResponse.json({ error: 'Database not configured' }, { status: 500 });
+    }
+
+    const supabase = createServerClient(supabaseUrl, supabaseKey, {
+      cookies: { getAll: () => [], setAll: () => {} },
+    });
+
+    // --- Step 0: IP Rate Limit Check ---
+    const now = new Date().toISOString();
+    const { data: rateData, error: rateError } = await supabase.rpc('check_ip_rate_limit', {
+      p_ip: ip,
+      p_now: now,
+      p_max_attempts: 30,
+      p_window_seconds: 60,
+    });
+
+    const rateResult = rateData as { allowed: boolean; attempts: number; max_attempts: number; retry_after?: number } | undefined;
+
+    if (rateError || !rateResult?.allowed) {
+      console.warn('[CLAIM] IP rate limit exceeded', { ip, attempts: rateResult?.attempts });
+      await logClaim(supabase, {
+        faucetpay_address: address,
+        ip_address: ip,
+        user_agent: userAgent,
+        turnstile_passed: false,
+        success: false,
+        error_type: 'ip_rate_limit',
+      });
+      return NextResponse.json({
+        success: false,
+        error: 'Too many requests. Please slow down.',
+        retry_after: rateResult?.retry_after || 60,
+      }, { status: 429 });
+    }
+
+    // --- Step 1: Verify Turnstile captcha ---
     if (!turnstileToken || typeof turnstileToken !== 'string') {
+      await logClaim(supabase, {
+        faucetpay_address: address,
+        ip_address: ip,
+        user_agent: userAgent,
+        turnstile_passed: false,
+        success: false,
+        error_type: 'missing_captcha',
+      });
       return NextResponse.json({ success: false, error: 'Captcha verification failed' }, { status: 400 });
     }
 
@@ -33,6 +106,14 @@ export async function POST(request: Request) {
     const verifyData: { success: boolean } = await verifyRes.json();
 
     if (!verifyData.success) {
+      await logClaim(supabase, {
+        faucetpay_address: address,
+        ip_address: ip,
+        user_agent: userAgent,
+        turnstile_passed: false,
+        success: false,
+        error_type: 'invalid_captcha',
+      });
       return NextResponse.json({ success: false, error: 'Captcha verification failed' }, { status: 400 });
     }
 
@@ -41,18 +122,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'FaucetPay API key not configured' }, { status: 500 });
     }
 
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-    if (!supabaseUrl || !supabaseKey) {
-      return NextResponse.json({ error: 'Database not configured' }, { status: 500 });
-    }
-
-    const supabase = createServerClient(supabaseUrl, supabaseKey, {
-      cookies: { getAll: () => [], setAll: () => {} },
-    });
-
-    // Step 1: Record claim in DB (handles cooldown, daily limit, balance)
-    const now = new Date().toISOString();
+    // --- Step 2: Record claim in DB (handles cooldown, daily limit, balance) ---
     const { data: dbResult, error: dbError } = await supabase.rpc('faucet_claim', {
       p_address: address,
       p_now: now,
@@ -61,6 +131,14 @@ export async function POST(request: Request) {
 
     if (dbError) {
       console.error('[CLAIM] DB RPC error:', dbError);
+      await logClaim(supabase, {
+        faucetpay_address: address,
+        ip_address: ip,
+        user_agent: userAgent,
+        turnstile_passed: true,
+        success: false,
+        error_type: 'db_rpc_error',
+      });
       return NextResponse.json({ error: dbError.message }, { status: 500 });
     }
 
@@ -77,6 +155,14 @@ export async function POST(request: Request) {
 
     if (!result.success) {
       if (result.error === 'daily_limit') {
+        await logClaim(supabase, {
+          faucetpay_address: address,
+          ip_address: ip,
+          user_agent: userAgent,
+          turnstile_passed: true,
+          success: false,
+          error_type: 'daily_limit',
+        });
         return NextResponse.json({
           success: false,
           error: result.message || 'Daily limit reached',
@@ -87,12 +173,28 @@ export async function POST(request: Request) {
         }, { status: 429 });
       }
       if (result.error === 'cooldown') {
+        await logClaim(supabase, {
+          faucetpay_address: address,
+          ip_address: ip,
+          user_agent: userAgent,
+          turnstile_passed: true,
+          success: false,
+          error_type: 'cooldown',
+        });
         return NextResponse.json({ error: result.message || 'Please wait' }, { status: 429 });
       }
+      await logClaim(supabase, {
+        faucetpay_address: address,
+        ip_address: ip,
+        user_agent: userAgent,
+        turnstile_passed: true,
+        success: false,
+        error_type: result.error || 'unknown',
+      });
       return NextResponse.json({ error: result.message || 'Claim failed' }, { status: 500 });
     }
 
-    // Step 2: Send payment via FaucetPay
+    // --- Step 3: Send payment via FaucetPay ---
     const fpForm = new URLSearchParams();
     fpForm.append('api_key', apiKey);
     fpForm.append('to', address);
@@ -118,8 +220,15 @@ export async function POST(request: Request) {
     try {
       fpData = JSON.parse(rawText);
     } catch {
-      // DB recorded but payment failed — log and still return partial success
       console.error('[CLAIM] FaucetPay non-JSON after DB record:', rawText);
+      await logClaim(supabase, {
+        faucetpay_address: address,
+        ip_address: ip,
+        user_agent: userAgent,
+        turnstile_passed: true,
+        success: true,
+        error_type: null,
+      });
       return NextResponse.json({
         success: true,
         balance: result.balance,
@@ -140,7 +249,14 @@ export async function POST(request: Request) {
         (fpData as any).message ||
         JSON.stringify(fpData);
       console.error('[CLAIM] FaucetPay error after DB record:', fpData);
-      // Payment failed but DB already recorded — still return success with warning
+      await logClaim(supabase, {
+        faucetpay_address: address,
+        ip_address: ip,
+        user_agent: userAgent,
+        turnstile_passed: true,
+        success: true,
+        error_type: null,
+      });
       return NextResponse.json({
         success: true,
         balance: result.balance,
@@ -154,6 +270,15 @@ export async function POST(request: Request) {
         message: `Successfully claimed ${DECIMAL_AMOUNT} ${CURRENCY}!`,
       });
     }
+
+    await logClaim(supabase, {
+      faucetpay_address: address,
+      ip_address: ip,
+      user_agent: userAgent,
+      turnstile_passed: true,
+      success: true,
+      error_type: null,
+    });
 
     return NextResponse.json({
       success: true,

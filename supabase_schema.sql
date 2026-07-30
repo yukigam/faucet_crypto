@@ -260,3 +260,68 @@ BEGIN
   );
 END;
 $$;
+
+-- ============================================================
+-- Anti-Bot: Claim Log & IP Tracking
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS public.claim_log (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  faucetpay_address TEXT,
+  ip_address TEXT,
+  user_agent TEXT,
+  turnstile_passed BOOLEAN DEFAULT false,
+  success BOOLEAN DEFAULT false,
+  error_type TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE public.claim_log ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "claim_log_insert_anon" ON public.claim_log;
+CREATE POLICY "claim_log_insert_anon"
+  ON public.claim_log
+  FOR INSERT
+  WITH CHECK (true);
+
+DROP POLICY IF EXISTS "claim_log_select_anon" ON public.claim_log;
+CREATE POLICY "claim_log_select_anon"
+  ON public.claim_log
+  FOR SELECT
+  USING (true);
+
+-- RPC: check if an IP has exceeded the rate limit (e.g., 30 attempts per minute)
+CREATE OR REPLACE FUNCTION public.check_ip_rate_limit(
+  p_ip TEXT,
+  p_now TIMESTAMPTZ,
+  p_max_attempts INT DEFAULT 30,
+  p_window_seconds INT DEFAULT 60
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER SET search_path = ''
+AS $$
+DECLARE
+  v_recent_attempts INT;
+BEGIN
+  SELECT COUNT(*) INTO v_recent_attempts
+  FROM public.claim_log
+  WHERE ip_address = p_ip
+    AND created_at > p_now - (p_window_seconds || ' seconds')::INTERVAL;
+
+  IF v_recent_attempts >= p_max_attempts THEN
+    RETURN jsonb_build_object(
+      'allowed', false,
+      'attempts', v_recent_attempts,
+      'max_attempts', p_max_attempts,
+      'retry_after', p_window_seconds
+    );
+  END IF;
+
+  RETURN jsonb_build_object(
+    'allowed', true,
+    'attempts', v_recent_attempts,
+    'max_attempts', p_max_attempts
+  );
+END;
+$$;
