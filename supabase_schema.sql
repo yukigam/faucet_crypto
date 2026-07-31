@@ -12,11 +12,14 @@ CREATE TABLE public.claimants (
   daily_claim_count INT DEFAULT 0,
   last_claim_date DATE DEFAULT NULL,
   bonus_claims INT DEFAULT 0,
+  bonus_claims_date DATE DEFAULT NULL,
   referred_by TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 ALTER TABLE public.claimants ADD COLUMN IF NOT EXISTS bonus_claims INT DEFAULT 0;
+
+ALTER TABLE public.claimants ADD COLUMN IF NOT EXISTS bonus_claims_date DATE DEFAULT NULL;
 
 ALTER TABLE public.claimants ENABLE ROW LEVEL SECURITY;
 
@@ -57,11 +60,30 @@ DECLARE
   v_today DATE;
   v_daily_limit INT := 1;
   v_effective_limit INT;
+  v_bonus_date DATE;
+  v_ad_verified BOOLEAN;
 BEGIN
   v_today := p_now::DATE;
 
-  SELECT last_claim_at, balance, daily_claim_count, last_claim_date, bonus_claims
-  INTO v_last, v_balance, v_daily_count, v_last_date, v_bonus
+  -- Server-side ad verification: claim is only allowed if a ShrinkMe
+  -- shortlink was completed (server-verified) on the same day.
+  SELECT EXISTS (
+    SELECT 1 FROM public.shortlink_claims
+    WHERE faucetpay_address = p_address
+      AND created_at::DATE = v_today
+      AND status IN ('completed', 'claimed')
+  ) INTO v_ad_verified;
+
+  IF NOT v_ad_verified THEN
+    RETURN jsonb_build_object(
+      'success', false,
+      'error', 'ad_verification_required',
+      'message', 'Ad verification required: complete a shortlink first'
+    );
+  END IF;
+
+  SELECT last_claim_at, balance, daily_claim_count, last_claim_date, bonus_claims, bonus_claims_date
+  INTO v_last, v_balance, v_daily_count, v_last_date, v_bonus, v_bonus_date
   FROM public.claimants
   WHERE faucetpay_address = p_address;
 
@@ -77,7 +99,9 @@ BEGIN
   -- Reset daily counters if new day
   IF v_last_date IS NULL OR v_last_date < v_today THEN
     v_daily_count := 0;
-    v_bonus := 0;
+    IF v_bonus_date IS NULL OR v_bonus_date < v_today THEN
+      v_bonus := 0;
+    END IF;
   END IF;
 
   v_effective_limit := v_daily_limit + v_bonus;
@@ -104,9 +128,14 @@ BEGIN
     daily_claim_count = public.claimants.daily_claim_count + 1,
     last_claim_date = v_today,
     bonus_claims = CASE
-      WHEN public.claimants.last_claim_date IS NULL OR public.claimants.last_claim_date < v_today
+      WHEN public.claimants.bonus_claims_date IS NULL OR public.claimants.bonus_claims_date < v_today
       THEN 0
       ELSE public.claimants.bonus_claims
+    END,
+    bonus_claims_date = CASE
+      WHEN public.claimants.bonus_claims_date IS NULL OR public.claimants.bonus_claims_date < v_today
+      THEN NULL
+      ELSE public.claimants.bonus_claims_date
     END,
     referred_by = CASE
       WHEN public.claimants.referred_by IS NULL AND p_referrer IS NOT NULL
@@ -240,12 +269,17 @@ BEGIN
   SET status = 'completed', completed_at = p_now
   WHERE id = v_claim.id;
 
-  INSERT INTO public.claimants (faucetpay_address, balance, bonus_claims)
-  VALUES (v_claim.faucetpay_address, v_claim.reward, v_bonus_added)
+  INSERT INTO public.claimants (faucetpay_address, balance, bonus_claims, bonus_claims_date)
+  VALUES (v_claim.faucetpay_address, v_claim.reward, v_bonus_added, p_now::DATE)
   ON CONFLICT (faucetpay_address)
   DO UPDATE SET
     balance = public.claimants.balance + v_claim.reward,
-    bonus_claims = public.claimants.bonus_claims + v_bonus_added;
+    bonus_claims = CASE
+      WHEN public.claimants.bonus_claims_date IS NULL OR public.claimants.bonus_claims_date < p_now::DATE
+      THEN v_bonus_added
+      ELSE public.claimants.bonus_claims + v_bonus_added
+    END,
+    bonus_claims_date = p_now::DATE;
 
   RETURN jsonb_build_object(
     'success', true,
@@ -289,6 +323,20 @@ CREATE POLICY "claim_log_select_anon"
   ON public.claim_log
   FOR SELECT
   USING (true);
+
+-- RPC: server-side check whether the user completed a shortlink today
+CREATE OR REPLACE FUNCTION public.check_ad_verified(p_address TEXT, p_now TIMESTAMPTZ)
+RETURNS boolean
+LANGUAGE sql
+SECURITY DEFINER SET search_path = ''
+AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM public.shortlink_claims
+    WHERE faucetpay_address = p_address
+      AND created_at::DATE = p_now::DATE
+      AND status IN ('completed', 'claimed')
+  );
+$$;
 
 -- RPC: check if an IP has exceeded the rate limit (e.g., 30 attempts per minute)
 CREATE OR REPLACE FUNCTION public.check_ip_rate_limit(

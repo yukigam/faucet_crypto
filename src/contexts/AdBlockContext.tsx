@@ -26,6 +26,12 @@ const AD_DOMAINS = [
   'https://securepubads.g.doubleclick.net/tag/js/gpt.js',
 ];
 
+// Domains the site actually loads ads from — real network probes
+const SITE_AD_DOMAINS = [
+  'https://acceptable.a-ads.com/2448525/',
+  'https://pl30445321.effectivecpmnetwork.com/89/cb/2d/89cb2d8768fb0d2017d6d4ef194465a0.js',
+];
+
 // Class names that adblockers hide via element hiding rules
 const BAIT_CLASSES = [
   'ad', 'ads', 'adsbox', 'ad-banner', 'ad-container', 'ad-slot',
@@ -91,6 +97,23 @@ function checkBlockedDomain(): Promise<boolean> {
   });
 }
 
+// Probe the actual ad networks used on the site. If a fetch cannot reach
+// the ad server's network response, an adblocker is intercepting it.
+async function checkSiteAdNetwork(): Promise<boolean> {
+  const results = await Promise.all(
+    SITE_AD_DOMAINS.map(async (url) => {
+      try {
+        const res = await fetch(url, { mode: 'no-cors', cache: 'no-store' });
+        return res.type === 'opaque';
+      } catch {
+        return false;
+      }
+    })
+  );
+  // Considered blocked if at least one site ad domain is unreachable
+  return results.some((ok) => !ok);
+}
+
 export function AdBlockProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<AdBlockStatus>({
     brave: false,
@@ -113,13 +136,13 @@ export function AdBlockProvider({ children }: { children: ReactNode }) {
       return false;
     };
 
-    Promise.all([checkBrave(), checkBaitElements(), checkBlockedDomain()])
-      .then(([isBrave, baitBlocked, domainBlocked]) => {
+    Promise.all([checkBrave(), checkBaitElements(), checkBlockedDomain(), checkSiteAdNetwork()])
+      .then(([isBrave, baitBlocked, domainBlocked, networkBlocked]) => {
         if (!cancelled) {
           setStatus({
             brave: isBrave,
-            adblocker: baitBlocked || domainBlocked,
-            detected: isBrave || baitBlocked || domainBlocked,
+            adblocker: baitBlocked || domainBlocked || networkBlocked,
+            detected: isBrave || baitBlocked || domainBlocked || networkBlocked,
             checking: false,
           });
         }

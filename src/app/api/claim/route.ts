@@ -80,44 +80,29 @@ export async function POST(request: Request) {
       }, { status: 429 });
     }
 
-    // --- Step 1: IP Daily Limit Check (1 free claim per IP per day) ---
-    const todayStart = new Date();
-    todayStart.setUTCHours(0, 0, 0, 0);
+    // --- Step 1: Server-side Ad Verification ---
+    // Claims are rejected with 403 unless the user completed a ShrinkMe
+    // shortlink today (ad interaction verified server-side, not client-side).
+    const { data: adVerified, error: adError } = await supabase.rpc('check_ad_verified', {
+      p_address: address,
+      p_now: now,
+    });
 
-    const { data: ipClaims, error: ipClaimsError } = await supabase
-      .from('claim_log')
-      .select('id')
-      .eq('ip_address', ip)
-      .eq('success', true)
-      .gte('created_at', todayStart.toISOString());
-
-    if (ipClaimsError) {
-      console.error('[CLAIM] IP daily check error:', ipClaimsError);
-    }
-
-    if (!ipClaimsError && Array.isArray(ipClaims) && ipClaims.length >= 1) {
-      const { data: claimant } = await supabase
-        .from('claimants')
-        .select('bonus_claims')
-        .eq('faucetpay_address', address)
-        .single();
-
-      const hasBonus = claimant && Number(claimant.bonus_claims) > 0;
-
-      if (!hasBonus) {
-        await logClaim(supabase, {
-          faucetpay_address: address,
-          ip_address: ip,
-          user_agent: userAgent,
-          turnstile_passed: false,
-          success: false,
-          error_type: 'ip_daily_limit',
-        });
-        return NextResponse.json({
-          success: false,
-          error: 'Daily claim limit reached for this device/IP. Complete a shortlink to unlock more claims!',
-        }, { status: 429 });
-      }
+    if (adError || adVerified !== true) {
+      console.warn('[CLAIM] Ad verification failed', { ip, address });
+      await logClaim(supabase, {
+        faucetpay_address: address,
+        ip_address: ip,
+        user_agent: userAgent,
+        turnstile_passed: false,
+        success: false,
+        error_type: 'ad_verification_required',
+      });
+      return NextResponse.json({
+        success: false,
+        error: 'Ad verification required: complete a shortlink first to unlock faucet claims.',
+        code: 'ad_verification_required',
+      }, { status: 403 });
     }
 
     // --- Step 2: Verify Turnstile captcha ---
@@ -194,6 +179,21 @@ export async function POST(request: Request) {
     };
 
     if (!result.success) {
+      if (result.error === 'ad_verification_required') {
+        await logClaim(supabase, {
+          faucetpay_address: address,
+          ip_address: ip,
+          user_agent: userAgent,
+          turnstile_passed: true,
+          success: false,
+          error_type: 'ad_verification_required',
+        });
+        return NextResponse.json({
+          success: false,
+          error: result.message || 'Ad verification required: complete a shortlink first.',
+          code: 'ad_verification_required',
+        }, { status: 403 });
+      }
       if (result.error === 'daily_limit') {
         await logClaim(supabase, {
           faucetpay_address: address,

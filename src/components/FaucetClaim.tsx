@@ -8,6 +8,7 @@ import { useAdBlock } from '@/contexts/AdBlockContext';
 const REWARD = '0.000002';
 const CURRENCY = 'TON';
 const COOLDOWN_MS = 60_000;
+const AD_LOAD_TIMEOUT_MS = 6_000;
 
 type MessageType = 'success' | 'error' | 'info';
 
@@ -25,6 +26,30 @@ export default function FaucetClaim({ address }: { address: string }) {
   const [effectiveLimit, setEffectiveLimit] = useState<number>(1);
   const [limitReached, setLimitReached] = useState(false);
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
+  const [adLoaded, setAdLoaded] = useState(false);
+  const [adTimedOut, setAdTimedOut] = useState(false);
+  const [adVerified, setAdVerified] = useState(false);
+
+  const checkAdVerified = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/ad/status?address=${encodeURIComponent(address)}`);
+      const data = await res.json();
+      if (data.verified) {
+        setAdVerified(true);
+      } else {
+        // Fall back to local flag (set when the shortlink callback page loads)
+        const flag = localStorage.getItem(`ad_verified_${address}`);
+        const flagDate = flag ? flag.split('T')[0] : null;
+        const today = new Date().toISOString().split('T')[0];
+        setAdVerified(flagDate === today);
+      }
+    } catch {
+      const flag = localStorage.getItem(`ad_verified_${address}`);
+      const flagDate = flag ? flag.split('T')[0] : null;
+      const today = new Date().toISOString().split('T')[0];
+      setAdVerified(flagDate === today);
+    }
+  }, [address]);
 
   useEffect(() => {
     const stored = localStorage.getItem(`cooldown_${address}`);
@@ -50,6 +75,26 @@ export default function FaucetClaim({ address }: { address: string }) {
     return () => clearInterval(id);
   }, [countdown]);
 
+  // Verify ad interaction server-side on mount, on focus (returning from
+  // the shortlink page), and periodically
+  useEffect(() => {
+    checkAdVerified();
+    const onFocus = () => checkAdVerified();
+    window.addEventListener('focus', onFocus);
+    const interval = setInterval(checkAdVerified, 60_000);
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      clearInterval(interval);
+    };
+  }, [checkAdVerified]);
+
+  // If the actual ad iframe/network never responds, lock the claim button
+  useEffect(() => {
+    if (adLoaded) return;
+    const id = setTimeout(() => setAdTimedOut(true), AD_LOAD_TIMEOUT_MS);
+    return () => clearTimeout(id);
+  }, [adLoaded]);
+
   const minutes = String(Math.floor(countdown / 60000)).padStart(2, '0');
   const seconds = String(Math.floor((countdown % 60000) / 1000)).padStart(2, '0');
 
@@ -68,6 +113,18 @@ export default function FaucetClaim({ address }: { address: string }) {
   };
 
   const claim = async () => {
+    // Block if ad interaction not verified
+    if (!adVerified) {
+      showMessage('⚠️ Complete a shortlink first to unlock faucet claims', 'info');
+      return;
+    }
+
+    // Block if ads did not load their network response
+    if (adBlockDetected || adTimedOut) {
+      showMessage('⚠️ Ads are not loading. Disable your adblocker or shields.', 'info');
+      return;
+    }
+
     // Block if cooldown active
     if (countdown > 0) {
       showMessage(`⏳ Please wait ${minutes}:${seconds} before claiming`, 'info');
@@ -96,6 +153,11 @@ export default function FaucetClaim({ address }: { address: string }) {
       resetCaptcha();
 
       if (!res.ok) {
+        if (res.status === 403 && data.code === 'ad_verification_required') {
+          setAdVerified(false);
+          showMessage('⚠️ Complete a shortlink first to unlock faucet claims', 'info');
+          return;
+        }
         if (data.daily_limit && data.daily_claims && data.daily_claims >= data.daily_limit) {
           setLimitReached(true);
           setDailyClaims(data.daily_claims);
@@ -128,7 +190,8 @@ export default function FaucetClaim({ address }: { address: string }) {
   };
 
   const isCooldown = countdown > 0;
-  const isLimitReached = limitReached || (adBlockDetected && !adBlockChecking);
+  const adsBlocked = adBlockDetected || adTimedOut;
+  const isLimitReached = limitReached || (adsBlocked && !adBlockChecking);
 
   const messageStyles = {
     success: 'bg-green-100 border-green-300 text-green-800',
@@ -138,13 +201,17 @@ export default function FaucetClaim({ address }: { address: string }) {
 
   const buttonLabel = loading
     ? 'Processing...'
-    : adBlockDetected
-      ? 'Shields Detected'
-      : isLimitReached
-        ? 'Limit Reached'
-        : isCooldown
-          ? `Wait ${minutes}:${seconds}`
-          : `Claim ${REWARD} ${CURRENCY}`;
+    : adBlockDetected || adTimedOut
+      ? 'Ads Not Loading'
+      : !adVerified
+        ? 'Complete a Shortlink First'
+        : isLimitReached
+          ? 'Limit Reached'
+          : isCooldown
+            ? `Wait ${minutes}:${seconds}`
+            : `Claim ${REWARD} ${CURRENCY}`;
+
+  const buttonDisabled = loading || adsBlocked || !adVerified || isLimitReached || isCooldown;
 
   return (
     <div className="w-full max-w-md mx-auto overflow-hidden p-6 rounded-2xl bg-gradient-to-br from-yellow-400 via-orange-400 to-red-500 shadow-xl">
@@ -167,7 +234,7 @@ export default function FaucetClaim({ address }: { address: string }) {
             Reward: {REWARD} {CURRENCY} per claim
           </p>
           <p className="text-xs text-yellow-600 mt-1">
-            1 free claim per day — Complete shortlinks for more claims!
+            Complete a shortlink first to unlock faucet claims — each shortlink grants +10 claims!
           </p>
         </div>
 
@@ -185,9 +252,9 @@ export default function FaucetClaim({ address }: { address: string }) {
 
         <button
           onClick={claim}
-          disabled={isLimitReached}
+          disabled={buttonDisabled}
           className={`w-full py-3 px-6 rounded-lg font-semibold text-lg transition-all duration-200 ${
-            isCooldown || isLimitReached
+            buttonDisabled
               ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
               : 'bg-gradient-to-r from-yellow-400 to-orange-500 text-white hover:scale-105 hover:shadow-lg active:scale-95'
           }`}
@@ -195,7 +262,22 @@ export default function FaucetClaim({ address }: { address: string }) {
           {buttonLabel}
         </button>
 
-        {isLimitReached && !adBlockDetected && (
+        {adBlockDetected && !adBlockChecking && (
+          <div className="border rounded-lg px-4 py-3 text-sm font-medium bg-red-100 border-red-300 text-red-700">
+            Adblocker detected — ads are not loading. Disable your adblocker to claim.
+          </div>
+        )}
+        {!adBlockDetected && adTimedOut && (
+          <div className="border rounded-lg px-4 py-3 text-sm font-medium bg-red-100 border-red-300 text-red-700">
+            Ads failed to load (no network response). Reload the page or disable your adblocker.
+          </div>
+        )}
+        {!adsBlocked && !adVerified && (
+          <div className="border rounded-lg px-4 py-3 text-sm font-medium bg-blue-100 border-blue-200 text-blue-700">
+            Complete a shortlink to verify ad interaction and unlock faucet claims.
+          </div>
+        )}
+        {isLimitReached && !adsBlocked && (
           <div className="border rounded-lg px-4 py-3 text-sm font-medium bg-red-100 border-red-300 text-red-700">
             Daily limit reached. Complete a shortlink to unlock more claims!
           </div>
@@ -207,7 +289,7 @@ export default function FaucetClaim({ address }: { address: string }) {
           </div>
         )}
 
-        <AdBanner />
+        <AdBanner onAdLoad={() => setAdLoaded(true)} />
       </div>
     </div>
   );

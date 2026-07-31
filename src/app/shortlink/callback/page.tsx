@@ -13,10 +13,15 @@ function CallbackContent() {
   const dailyClaims = params.get('daily_claims');
   const warning = params.get('warning');
   const bonusAdded = params.get('bonus_added');
+  const address = params.get('address');
 
   useEffect(() => {
     console.log('[SHORTLINK_PAGE] Received params:', Object.fromEntries(params.entries()));
-  }, [params]);
+    // Mark ad interaction as verified locally (server re-verifies at claim time)
+    if (status === 'success' && address) {
+      localStorage.setItem(`ad_verified_${address}`, new Date().toISOString());
+    }
+  }, [params, status, address]);
 
   return (
     <main className="min-h-screen flex flex-col items-center justify-center p-6 gap-8">
