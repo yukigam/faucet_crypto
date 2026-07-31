@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import AdsterraPopunder from "@/components/AdsterraPopunder";
 import { AdBlockProvider } from "@/contexts/AdBlockContext";
+import { PopunderProvider } from "@/contexts/PopunderContext";
 import BlockerWarning from "@/components/BlockerWarning";
 import "./globals.css";
 
@@ -29,9 +30,11 @@ export default function RootLayout({
     <html lang="en" className={`${geistSans.variable} ${geistMono.variable}`}>
       <body className="bg-gray-950 text-white min-h-screen">
         <AdBlockProvider>
-          {children}
-          <BlockerWarning />
-          <AdsterraPopunder />
+          <PopunderProvider>
+            {children}
+            <BlockerWarning />
+            <AdsterraPopunder />
+          </PopunderProvider>
         </AdBlockProvider>
       </body>
     </html>

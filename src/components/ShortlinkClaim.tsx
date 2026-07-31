@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import AdBanner from './AdBanner';
+import { usePopunder } from '@/contexts/PopunderContext';
 
 const REWARD = '0.0005';
 const CURRENCY = 'TON';
@@ -10,6 +11,12 @@ const SHORTLINK_DAILY_LIMIT = 10;
 type MessageType = 'success' | 'error' | 'info';
 
 export default function ShortlinkClaim({ address }: { address: string }) {
+  const {
+    verified: popunderVerified,
+    checking: popunderChecking,
+    blocked: popunderBlocked,
+    closedEarly: popunderClosedEarly,
+  } = usePopunder();
   const [message, setMessage] = useState('');
   const [messageType, setMessageType] = useState<MessageType>('info');
   const [loading, setLoading] = useState(false);
@@ -43,6 +50,20 @@ export default function ShortlinkClaim({ address }: { address: string }) {
   };
 
   const startShortlink = async () => {
+    // Popunder ad interaction must be genuinely triggered before starting
+    if (!popunderVerified) {
+      if (popunderBlocked) {
+        showMessage('⚠️ Popup blocked — allow popups for this site, then click again', 'error');
+        return;
+      }
+      if (popunderClosedEarly) {
+        showMessage('⚠️ Popunder closed too early — click again and keep it open', 'error');
+        return;
+      }
+      showMessage('⚠️ Click again after the popunder ad opens to verify interaction', 'info');
+      return;
+    }
+
     setLoading(true);
     setMessage('');
 
@@ -124,15 +145,35 @@ export default function ShortlinkClaim({ address }: { address: string }) {
 
         <button
           onClick={startShortlink}
-          disabled={loading || redirecting || isLimitReached}
+          disabled={loading || redirecting || popunderChecking || isLimitReached}
           className={`w-full py-3 px-6 rounded-lg font-semibold text-lg transition-all duration-200 ${
-            loading || redirecting || isLimitReached
+            loading || redirecting || popunderChecking || isLimitReached
               ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
               : 'bg-gradient-to-r from-cyan-400 to-blue-500 text-white hover:scale-105 hover:shadow-lg active:scale-95'
           }`}
         >
-          {loading || redirecting ? 'Redirecting...' : isLimitReached ? 'Limit Reached' : 'Start Shortlink →'}
+          {loading || redirecting
+            ? 'Redirecting...'
+            : popunderChecking
+              ? 'Verifying Ad Interaction...'
+              : !popunderVerified
+                ? popunderBlocked
+                  ? 'Popup Blocked — Allow Popups'
+                  : 'Click to Trigger Popunder Ad'
+                : isLimitReached
+                  ? 'Limit Reached'
+                  : 'Start Shortlink →'}
         </button>
+
+        {!popunderVerified && (
+          <div className="border rounded-lg px-4 py-3 text-sm font-medium bg-blue-100 border-blue-200 text-blue-700">
+            {popunderBlocked
+              ? 'Popup blocked — allow popups for this site, then click the button again.'
+              : popunderClosedEarly
+                ? 'The popunder ad was closed too early — click again and keep the ad open to verify interaction.'
+                : 'Click the button to trigger the popunder ad. Keep it open to verify the ad interaction.'}
+          </div>
+        )}
 
         {isLimitReached && (
           <div className="border rounded-lg px-4 py-3 text-sm font-medium bg-red-100 border-red-300 text-red-700">

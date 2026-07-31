@@ -4,6 +4,7 @@ import { useEffect, useState, useRef, useCallback } from 'react';
 import { Turnstile, type TurnstileInstance } from '@marsidev/react-turnstile';
 import AdBanner from './AdBanner';
 import { useAdBlock } from '@/contexts/AdBlockContext';
+import { usePopunder } from '@/contexts/PopunderContext';
 
 const REWARD = '0.000002';
 const CURRENCY = 'TON';
@@ -14,6 +15,12 @@ type MessageType = 'success' | 'error' | 'info';
 
 export default function FaucetClaim({ address }: { address: string }) {
   const { detected: adBlockDetected, checking: adBlockChecking } = useAdBlock();
+  const {
+    verified: popunderVerified,
+    checking: popunderChecking,
+    blocked: popunderBlocked,
+    closedEarly: popunderClosedEarly,
+  } = usePopunder();
   const turnstileRef = useRef<TurnstileInstance>(null);
   const [countdown, setCountdown] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -113,6 +120,21 @@ export default function FaucetClaim({ address }: { address: string }) {
   };
 
   const claim = async () => {
+    // Block if popunder ad interaction was not genuinely completed —
+    // this click itself is what triggers the Adsterra popunder
+    if (!popunderVerified) {
+      if (popunderBlocked) {
+        showMessage('⚠️ Popup blocked — allow popups for this site, then click again', 'info');
+        return;
+      }
+      if (popunderClosedEarly) {
+        showMessage('⚠️ Popunder closed too early — click again and keep it open', 'info');
+        return;
+      }
+      showMessage('⚠️ Click again after the popunder ad opens to verify interaction', 'info');
+      return;
+    }
+
     // Block if ad interaction not verified
     if (!adVerified) {
       showMessage('⚠️ Complete a shortlink first to unlock faucet claims', 'info');
@@ -203,15 +225,27 @@ export default function FaucetClaim({ address }: { address: string }) {
     ? 'Processing...'
     : adBlockDetected || adTimedOut
       ? 'Ads Not Loading'
-      : !adVerified
-        ? 'Complete a Shortlink First'
-        : isLimitReached
-          ? 'Limit Reached'
-          : isCooldown
-            ? `Wait ${minutes}:${seconds}`
-            : `Claim ${REWARD} ${CURRENCY}`;
+      : popunderChecking
+        ? 'Verifying Ad Interaction...'
+        : !popunderVerified
+          ? popunderBlocked
+            ? 'Popup Blocked — Allow Popups'
+            : 'Click to Trigger Popunder Ad'
+          : !adVerified
+            ? 'Complete a Shortlink First'
+            : isLimitReached
+              ? 'Limit Reached'
+              : isCooldown
+                ? `Wait ${minutes}:${seconds}`
+                : `Claim ${REWARD} ${CURRENCY}`;
 
-  const buttonDisabled = loading || adsBlocked || !adVerified || isLimitReached || isCooldown;
+  const buttonDisabled =
+    loading ||
+    adsBlocked ||
+    popunderChecking ||
+    !adVerified ||
+    isLimitReached ||
+    isCooldown;
 
   return (
     <div className="w-full max-w-md mx-auto overflow-hidden p-6 rounded-2xl bg-gradient-to-br from-yellow-400 via-orange-400 to-red-500 shadow-xl">
@@ -272,7 +306,16 @@ export default function FaucetClaim({ address }: { address: string }) {
             Ads failed to load (no network response). Reload the page or disable your adblocker.
           </div>
         )}
-        {!adsBlocked && !adVerified && (
+        {!adsBlocked && !popunderVerified && (
+          <div className="border rounded-lg px-4 py-3 text-sm font-medium bg-blue-100 border-blue-200 text-blue-700">
+            {popunderBlocked
+              ? 'Popup blocked — allow popups for this site, then click the button again.'
+              : popunderClosedEarly
+                ? 'The popunder ad was closed too early — click again and keep the ad open to verify interaction.'
+                : 'Click the button to trigger the popunder ad. Keep it open to verify the ad interaction.'}
+          </div>
+        )}
+        {!adsBlocked && popunderVerified && !adVerified && (
           <div className="border rounded-lg px-4 py-3 text-sm font-medium bg-blue-100 border-blue-200 text-blue-700">
             Complete a shortlink to verify ad interaction and unlock faucet claims.
           </div>
