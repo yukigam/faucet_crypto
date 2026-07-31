@@ -20,9 +20,9 @@ export default function FaucetClaim({ address }: { address: string }) {
   const [messageType, setMessageType] = useState<MessageType>('info');
   const [balance, setBalance] = useState<number | null>(null);
   const [dailyClaims, setDailyClaims] = useState<number | undefined>(undefined);
-  const [dailyLimit, setDailyLimit] = useState<number>(20);
+  const [dailyLimit, setDailyLimit] = useState<number>(1);
   const [bonusClaims, setBonusClaims] = useState<number>(0);
-  const [effectiveLimit, setEffectiveLimit] = useState<number>(20);
+  const [effectiveLimit, setEffectiveLimit] = useState<number>(1);
   const [limitReached, setLimitReached] = useState(false);
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
 
@@ -167,7 +167,7 @@ export default function FaucetClaim({ address }: { address: string }) {
             Reward: {REWARD} {CURRENCY} per claim
           </p>
           <p className="text-xs text-yellow-600 mt-1">
-            20 claims per day — Complete shortlinks for bonus claims!
+            1 free claim per day — Complete shortlinks for more claims!
           </p>
         </div>
 

@@ -55,7 +55,7 @@ DECLARE
   v_bonus INT;
   v_last_date DATE;
   v_today DATE;
-  v_daily_limit INT := 20;
+  v_daily_limit INT := 1;
   v_effective_limit INT;
 BEGIN
   v_today := p_now::DATE;

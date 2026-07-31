@@ -80,7 +80,47 @@ export async function POST(request: Request) {
       }, { status: 429 });
     }
 
-    // --- Step 1: Verify Turnstile captcha ---
+    // --- Step 1: IP Daily Limit Check (1 free claim per IP per day) ---
+    const todayStart = new Date();
+    todayStart.setUTCHours(0, 0, 0, 0);
+
+    const { data: ipClaims, error: ipClaimsError } = await supabase
+      .from('claim_log')
+      .select('id')
+      .eq('ip_address', ip)
+      .eq('success', true)
+      .gte('created_at', todayStart.toISOString());
+
+    if (ipClaimsError) {
+      console.error('[CLAIM] IP daily check error:', ipClaimsError);
+    }
+
+    if (!ipClaimsError && Array.isArray(ipClaims) && ipClaims.length >= 1) {
+      const { data: claimant } = await supabase
+        .from('claimants')
+        .select('bonus_claims')
+        .eq('faucetpay_address', address)
+        .single();
+
+      const hasBonus = claimant && Number(claimant.bonus_claims) > 0;
+
+      if (!hasBonus) {
+        await logClaim(supabase, {
+          faucetpay_address: address,
+          ip_address: ip,
+          user_agent: userAgent,
+          turnstile_passed: false,
+          success: false,
+          error_type: 'ip_daily_limit',
+        });
+        return NextResponse.json({
+          success: false,
+          error: 'Daily claim limit reached for this device/IP. Complete a shortlink to unlock more claims!',
+        }, { status: 429 });
+      }
+    }
+
+    // --- Step 2: Verify Turnstile captcha ---
     if (!turnstileToken || typeof turnstileToken !== 'string') {
       await logClaim(supabase, {
         faucetpay_address: address,
@@ -122,7 +162,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'FaucetPay API key not configured' }, { status: 500 });
     }
 
-    // --- Step 2: Record claim in DB (handles cooldown, daily limit, balance) ---
+    // --- Step 3: Record claim in DB (handles cooldown, daily limit, balance) ---
     const { data: dbResult, error: dbError } = await supabase.rpc('faucet_claim', {
       p_address: address,
       p_now: now,
@@ -194,7 +234,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: result.message || 'Claim failed' }, { status: 500 });
     }
 
-    // --- Step 3: Send payment via FaucetPay ---
+    // --- Step 4: Send payment via FaucetPay ---
     const fpForm = new URLSearchParams();
     fpForm.append('api_key', apiKey);
     fpForm.append('to', address);
