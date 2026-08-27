@@ -3,13 +3,15 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { Turnstile, type TurnstileInstance } from '@marsidev/react-turnstile';
 import AdBanner from './AdBanner';
+import AdSlot from './AdSlot';
 import { useAdBlock } from '@/contexts/AdBlockContext';
-import { usePopunder } from '@/contexts/PopunderContext';
+import { usePopunder, AD_VIEW_SECONDS } from '@/contexts/PopunderContext';
 
 const REWARD = '0.000002';
 const CURRENCY = 'TON';
 const COOLDOWN_MS = 60_000;
 const AD_LOAD_TIMEOUT_MS = 6_000;
+const TURNSTILE_SITE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? '';
 
 type MessageType = 'success' | 'error' | 'info';
 
@@ -20,6 +22,7 @@ export default function FaucetClaim({ address }: { address: string }) {
     checking: popunderChecking,
     blocked: popunderBlocked,
     closedEarly: popunderClosedEarly,
+    secondsRemaining: adSecondsRemaining,
   } = usePopunder();
   const turnstileRef = useRef<TurnstileInstance>(null);
   const [countdown, setCountdown] = useState(0);
@@ -226,7 +229,7 @@ export default function FaucetClaim({ address }: { address: string }) {
     : adBlockDetected || adTimedOut
       ? 'Ads Not Loading'
       : popunderChecking
-        ? 'Verifying Ad Interaction...'
+        ? `Watching Ad… ${adSecondsRemaining ?? AD_VIEW_SECONDS}s`
         : !popunderVerified
           ? popunderBlocked
             ? 'Popup Blocked — Allow Popups'
@@ -272,11 +275,13 @@ export default function FaucetClaim({ address }: { address: string }) {
           </p>
         </div>
 
+        <AdSlot slot="aboveClaim" onAdLoad={() => setAdLoaded(true)} className="my-2" />
+
         <div className="w-full flex justify-center overflow-hidden my-2">
           <div style={{ transform: 'scale(0.85)', transformOrigin: 'center' }}>
             <Turnstile
               ref={turnstileRef}
-              siteKey="0x4AAAAAAD5kW6zX8NLmEIT1"
+              siteKey={TURNSTILE_SITE_KEY}
               onSuccess={(token) => setTurnstileToken(token)}
               onExpire={() => setTurnstileToken(null)}
               options={{ theme: 'light', size: 'flexible' }}
@@ -306,7 +311,23 @@ export default function FaucetClaim({ address }: { address: string }) {
             Ads failed to load (no network response). Reload the page or disable your adblocker.
           </div>
         )}
-        {!adsBlocked && !popunderVerified && (
+        {!adsBlocked && popunderChecking && (
+          <div className="border rounded-lg px-4 py-3 text-sm font-medium bg-blue-50 border-blue-200 text-blue-700">
+            <div className="flex items-center justify-between">
+              <span>Verifying ad view — keep the tab open…</span>
+              <span className="font-mono font-bold">{adSecondsRemaining ?? AD_VIEW_SECONDS}s</span>
+            </div>
+            <div className="mt-2 h-1.5 w-full bg-blue-100 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-blue-500 rounded-full transition-all duration-300"
+                style={{
+                  width: `${((AD_VIEW_SECONDS - (adSecondsRemaining ?? AD_VIEW_SECONDS)) / AD_VIEW_SECONDS) * 100}%`,
+                }}
+              />
+            </div>
+          </div>
+        )}
+        {!adsBlocked && !popunderVerified && !popunderChecking && (
           <div className="border rounded-lg px-4 py-3 text-sm font-medium bg-blue-100 border-blue-200 text-blue-700">
             {popunderBlocked
               ? 'Popup blocked — allow popups for this site, then click the button again.'

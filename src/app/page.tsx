@@ -5,6 +5,7 @@ import FaucetClaim from '@/components/FaucetClaim';
 import ShortlinkClaim from '@/components/ShortlinkClaim';
 import ReferralDashboard from '@/components/ReferralDashboard';
 import AdBanner from '@/components/AdBanner';
+import AdSlot from '@/components/AdSlot';
 
 const STORAGE_KEY = 'faucetpay_address';
 type Tab = 'faucet' | 'shortlink';
@@ -78,6 +79,19 @@ export default function Home() {
 
   return (
     <main className="min-h-screen flex flex-col items-center p-6 gap-6">
+      {/* Sticky sidebar ads — only on wide screens where the centered
+          column leaves empty space, so the layout is never disturbed */}
+      <div className="pointer-events-none fixed inset-y-0 right-0 z-0 hidden xl:flex items-center">
+        <div className="pointer-events-auto mr-4 w-[300px]">
+          <AdSlot slot="sidebar" />
+        </div>
+      </div>
+      <div className="pointer-events-none fixed inset-y-0 left-0 z-0 hidden 2xl:flex items-center">
+        <div className="pointer-events-auto ml-4 w-[300px]">
+          <AdSlot slot="sidebar" />
+        </div>
+      </div>
+
       <AdBanner />
 
       <div className="w-full max-w-md flex items-center justify-between">

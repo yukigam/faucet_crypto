@@ -42,6 +42,12 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'FaucetPay address is required' }, { status: 400 });
     }
 
+    const turnstileSecret = process.env.TURNSTILE_SECRET_KEY;
+    if (!turnstileSecret) {
+      console.error('[CLAIM] TURNSTILE_SECRET_KEY not configured');
+      return NextResponse.json({ error: 'Captcha server misconfigured' }, { status: 500 });
+    }
+
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
     if (!supabaseUrl || !supabaseKey) {
@@ -119,7 +125,7 @@ export async function POST(request: Request) {
     }
 
     const verifyForm = new URLSearchParams();
-    verifyForm.append('secret', '0x4AAAAAAD5kW6lb2Rf1JnV4-V066CgPM0o');
+    verifyForm.append('secret', turnstileSecret);
     verifyForm.append('response', turnstileToken);
 
     const verifyRes = await fetch(TURNSTILE_VERIFY, {

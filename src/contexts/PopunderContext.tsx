@@ -2,7 +2,11 @@
 
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 
-const SUSTAIN_MS = 3_000;
+// The opened ad tab must stay open this long before the interaction counts.
+// A visible countdown of these seconds is shown in the claim UIs.
+export const AD_VIEW_SECONDS = 8;
+const AD_VIEW_MS = AD_VIEW_SECONDS * 1_000;
+const POLL_INTERVAL_MS = 250;
 const GESTURE_WINDOW_MS = 2_000;
 const VERIFIED_WINDOW_MS = 30 * 60 * 1000;
 const VERIFIED_KEY = 'popunder_verified_at';
@@ -14,6 +18,8 @@ type PopunderStatus = {
   blocked: boolean;
   closedEarly: boolean;
   checking: boolean;
+  /** Live countdown while checking: seconds left of the required view time. */
+  secondsRemaining: number | null;
 };
 
 const defaultStatus: PopunderStatus = {
@@ -23,6 +29,7 @@ const defaultStatus: PopunderStatus = {
   blocked: false,
   closedEarly: false,
   checking: false,
+  secondsRemaining: null,
 };
 
 const PopunderContext = createContext<PopunderStatus>(defaultStatus);
@@ -68,7 +75,7 @@ export function PopunderProvider({ children }: { children: ReactNode }) {
       const withinGesture = Date.now() - lastGestureRef.current <= GESTURE_WINDOW_MS;
       const win = originalOpen(...args);
       if (!win) {
-        setStatus((s) => ({ ...s, blocked: true, triggered: false, checking: false }));
+        setStatus((s) => ({ ...s, blocked: true, triggered: false, checking: false, secondsRemaining: null }));
         return win;
       }
       if (!withinGesture) return win;
@@ -79,24 +86,28 @@ export function PopunderProvider({ children }: { children: ReactNode }) {
         blocked: false,
         closedEarly: false,
         checking: true,
+        secondsRemaining: AD_VIEW_SECONDS,
       }));
 
       // Require the opened window to stay open (real ad session) —
-      // if it is closed immediately, the interaction does not count
+      // if it is closed before the full view time, the interaction
+      // does not count and the user must trigger the ad again
       const start = Date.now();
       const timer = window.setInterval(() => {
+        const elapsed = Date.now() - start;
         if (win.closed) {
           clearInterval(timer);
-          if (Date.now() - start < SUSTAIN_MS) {
+          if (elapsed < AD_VIEW_MS) {
             setStatus((s) => ({
               ...s,
               checking: false,
               triggered: false,
               closedEarly: true,
               verified: false,
+              secondsRemaining: null,
             }));
           }
-        } else if (Date.now() - start >= SUSTAIN_MS) {
+        } else if (elapsed >= AD_VIEW_MS) {
           clearInterval(timer);
           try {
             localStorage.setItem(VERIFIED_KEY, String(Date.now()));
@@ -109,9 +120,13 @@ export function PopunderProvider({ children }: { children: ReactNode }) {
             sustained: true,
             verified: true,
             closedEarly: false,
+            secondsRemaining: null,
           }));
+        } else {
+          const secs = Math.ceil((AD_VIEW_MS - elapsed) / 1000);
+          setStatus((s) => (s.secondsRemaining === secs ? s : { ...s, secondsRemaining: secs }));
         }
-      }, 400);
+      }, POLL_INTERVAL_MS);
       timersRef.current.push(timer);
       return win;
     };

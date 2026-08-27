@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import AdBanner from './AdBanner';
-import { usePopunder } from '@/contexts/PopunderContext';
+import { usePopunder, AD_VIEW_SECONDS } from '@/contexts/PopunderContext';
 
 const REWARD = '0.0005';
 const CURRENCY = 'TON';
@@ -16,6 +16,7 @@ export default function ShortlinkClaim({ address }: { address: string }) {
     checking: popunderChecking,
     blocked: popunderBlocked,
     closedEarly: popunderClosedEarly,
+    secondsRemaining: adSecondsRemaining,
   } = usePopunder();
   const [message, setMessage] = useState('');
   const [messageType, setMessageType] = useState<MessageType>('info');
@@ -155,7 +156,7 @@ export default function ShortlinkClaim({ address }: { address: string }) {
           {loading || redirecting
             ? 'Redirecting...'
             : popunderChecking
-              ? 'Verifying Ad Interaction...'
+              ? `Watching Ad… ${adSecondsRemaining ?? AD_VIEW_SECONDS}s`
               : !popunderVerified
                 ? popunderBlocked
                   ? 'Popup Blocked — Allow Popups'
@@ -165,7 +166,23 @@ export default function ShortlinkClaim({ address }: { address: string }) {
                   : 'Start Shortlink →'}
         </button>
 
-        {!popunderVerified && (
+        {popunderChecking && (
+          <div className="border rounded-lg px-4 py-3 text-sm font-medium bg-blue-50 border-blue-200 text-blue-700">
+            <div className="flex items-center justify-between">
+              <span>Verifying ad view — keep the tab open…</span>
+              <span className="font-mono font-bold">{adSecondsRemaining ?? AD_VIEW_SECONDS}s</span>
+            </div>
+            <div className="mt-2 h-1.5 w-full bg-blue-100 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-blue-500 rounded-full transition-all duration-300"
+                style={{
+                  width: `${((AD_VIEW_SECONDS - (adSecondsRemaining ?? AD_VIEW_SECONDS)) / AD_VIEW_SECONDS) * 100}%`,
+                }}
+              />
+            </div>
+          </div>
+        )}
+        {!popunderVerified && !popunderChecking && (
           <div className="border rounded-lg px-4 py-3 text-sm font-medium bg-blue-100 border-blue-200 text-blue-700">
             {popunderBlocked
               ? 'Popup blocked — allow popups for this site, then click the button again.'
