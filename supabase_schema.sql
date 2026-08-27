@@ -58,7 +58,8 @@ DECLARE
   v_bonus INT;
   v_last_date DATE;
   v_today DATE;
-  v_daily_limit INT := 1;
+  -- Base daily claim allowance per account; shortlink bonuses add on top
+  v_daily_limit INT := 10;
   v_effective_limit INT;
   v_bonus_date DATE;
   v_ad_verified BOOLEAN;

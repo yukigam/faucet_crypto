@@ -37,9 +37,11 @@ export default function FaucetClaim({ address }: { address: string }) {
   const [messageType, setMessageType] = useState<MessageType>('info');
   const [balance, setBalance] = useState<number | null>(null);
   const [dailyClaims, setDailyClaims] = useState<number | undefined>(undefined);
-  const [dailyLimit, setDailyLimit] = useState<number>(1);
+  // Must mirror v_daily_limit in the Supabase faucet_claim() function —
+  // the server is authoritative; these defaults only shape the first render
+  const [dailyLimit, setDailyLimit] = useState<number>(10);
   const [bonusClaims, setBonusClaims] = useState<number>(0);
-  const [effectiveLimit, setEffectiveLimit] = useState<number>(1);
+  const [effectiveLimit, setEffectiveLimit] = useState<number>(10);
   const [limitReached, setLimitReached] = useState(false);
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
   const [captchaError, setCaptchaError] = useState(false);
@@ -285,7 +287,8 @@ export default function FaucetClaim({ address }: { address: string }) {
             Reward: {REWARD} {CURRENCY} per claim
           </p>
           <p className="text-xs text-yellow-600 mt-1">
-            Complete a shortlink first to unlock faucet claims — each shortlink grants +10 claims!
+            10 free claims every day — complete a shortlink first to unlock them, and each extra
+            shortlink adds +10 more claims!
           </p>
         </div>
 
