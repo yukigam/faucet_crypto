@@ -11,7 +11,13 @@ const REWARD = '0.000002';
 const CURRENCY = 'TON';
 const COOLDOWN_MS = 60_000;
 const AD_LOAD_TIMEOUT_MS = 6_000;
-const TURNSTILE_SITE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? '';
+// Turnstile site keys are public by design (they identify the widget — only
+// the secret key must stay private). The inline fallback guarantees the widget
+// always renders even if NEXT_PUBLIC_TURNSTILE_SITE_KEY wasn't baked into this
+// build; the env var takes precedence when present.
+const FALLBACK_TURNSTILE_SITE_KEY = '0x4AAAAAAD5kW6zX8NLmEIT1';
+const TURNSTILE_SITE_KEY =
+  process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY || FALLBACK_TURNSTILE_SITE_KEY;
 
 type MessageType = 'success' | 'error' | 'info';
 
@@ -36,6 +42,10 @@ export default function FaucetClaim({ address }: { address: string }) {
   const [effectiveLimit, setEffectiveLimit] = useState<number>(1);
   const [limitReached, setLimitReached] = useState(false);
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
+  const [captchaError, setCaptchaError] = useState(false);
+  // Changing this key forces React to fully remount the widget — the only
+  // reliable way to recover once challenges.cloudflare.com errored out
+  const [captchaRetry, setCaptchaRetry] = useState(0);
   const [adLoaded, setAdLoaded] = useState(false);
   const [adTimedOut, setAdTimedOut] = useState(false);
   const [adVerified, setAdVerified] = useState(false);
@@ -217,6 +227,7 @@ export default function FaucetClaim({ address }: { address: string }) {
   const isCooldown = countdown > 0;
   const adsBlocked = adBlockDetected || adTimedOut;
   const isLimitReached = limitReached || (adsBlocked && !adBlockChecking);
+  const captchaUnavailable = !TURNSTILE_SITE_KEY;
 
   const messageStyles = {
     success: 'bg-green-100 border-green-300 text-green-800',
@@ -226,21 +237,23 @@ export default function FaucetClaim({ address }: { address: string }) {
 
   const buttonLabel = loading
     ? 'Processing...'
-    : adBlockDetected || adTimedOut
-      ? 'Ads Not Loading'
-      : popunderChecking
-        ? `Watching Ad… ${adSecondsRemaining ?? AD_VIEW_SECONDS}s`
-        : !popunderVerified
-          ? popunderBlocked
-            ? 'Popup Blocked — Allow Popups'
-            : 'Click to Trigger Popunder Ad'
-          : !adVerified
-            ? 'Complete a Shortlink First'
-            : isLimitReached
-              ? 'Limit Reached'
-              : isCooldown
-                ? `Wait ${minutes}:${seconds}`
-                : `Claim ${REWARD} ${CURRENCY}`;
+    : captchaUnavailable
+      ? 'Captcha Unavailable'
+      : adBlockDetected || adTimedOut
+        ? 'Ads Not Loading'
+        : popunderChecking
+          ? `Watching Ad… ${adSecondsRemaining ?? AD_VIEW_SECONDS}s`
+          : !popunderVerified
+            ? popunderBlocked
+              ? 'Popup Blocked — Allow Popups'
+              : 'Click to Trigger Popunder Ad'
+            : !adVerified
+              ? 'Complete a Shortlink First'
+              : isLimitReached
+                ? 'Limit Reached'
+                : isCooldown
+                  ? `Wait ${minutes}:${seconds}`
+                  : `Claim ${REWARD} ${CURRENCY}`;
 
   const buttonDisabled =
     loading ||
@@ -248,7 +261,8 @@ export default function FaucetClaim({ address }: { address: string }) {
     popunderChecking ||
     !adVerified ||
     isLimitReached ||
-    isCooldown;
+    isCooldown ||
+    captchaUnavailable;
 
   return (
     <div className="w-full max-w-md mx-auto overflow-hidden p-6 rounded-2xl bg-gradient-to-br from-yellow-400 via-orange-400 to-red-500 shadow-xl">
@@ -277,17 +291,57 @@ export default function FaucetClaim({ address }: { address: string }) {
 
         <AdSlot slot="aboveClaim" onAdLoad={() => setAdLoaded(true)} className="my-2" />
 
-        <div className="w-full flex justify-center overflow-hidden my-2">
-          <div style={{ transform: 'scale(0.85)', transformOrigin: 'center' }}>
-            <Turnstile
-              ref={turnstileRef}
-              siteKey={TURNSTILE_SITE_KEY}
-              onSuccess={(token) => setTurnstileToken(token)}
-              onExpire={() => setTurnstileToken(null)}
-              options={{ theme: 'light', size: 'flexible' }}
-            />
+        {!TURNSTILE_SITE_KEY ? (
+          // Fail loudly instead of silently rendering nothing — this exact
+          // symptom appears when the NEXT_PUBLIC var was missing at build time
+          <div className="w-full my-2 border rounded-lg px-4 py-3 text-sm font-medium bg-red-100 border-red-300 text-red-700">
+            ⚠️ Captcha widget unavailable: NEXT_PUBLIC_TURNSTILE_SITE_KEY is not set. Add it to your
+            environment and rebuild/redeploy.
           </div>
-        </div>
+        ) : (
+          <div className="w-full flex flex-col items-center my-2">
+            <div
+              className="flex justify-center overflow-hidden"
+              style={{ minHeight: '70px' }}
+            >
+              <div style={{ transform: 'scale(0.85)', transformOrigin: 'center' }}>
+                <Turnstile
+                  key={captchaRetry}
+                  ref={turnstileRef}
+                  siteKey={TURNSTILE_SITE_KEY}
+                  onSuccess={(token) => {
+                    setTurnstileToken(token);
+                    setCaptchaError(false);
+                  }}
+                  onExpire={() => setTurnstileToken(null)}
+                  onError={() => {
+                    setTurnstileToken(null);
+                    setCaptchaError(true);
+                  }}
+                  options={{ theme: 'light', size: 'flexible' }}
+                />
+              </div>
+            </div>
+            <p className="text-[10px] text-gray-400 mt-1">Protected by Cloudflare Turnstile</p>
+          </div>
+        )}
+
+        {TURNSTILE_SITE_KEY && captchaError && (
+          <div className="border rounded-lg px-4 py-3 text-sm font-medium bg-red-100 border-red-300 text-red-700">
+            <p>
+              Captcha failed to load — check your connection, VPN, or adblocker.
+            </p>
+            <button
+              onClick={() => {
+                setCaptchaError(false);
+                setCaptchaRetry((n) => n + 1);
+              }}
+              className="mt-2 py-1.5 px-3 rounded-md font-semibold text-xs bg-red-600 text-white hover:bg-red-700 transition-colors"
+            >
+              Retry Captcha
+            </button>
+          </div>
+        )}
 
         <button
           onClick={claim}

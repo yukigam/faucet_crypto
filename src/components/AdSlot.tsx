@@ -11,6 +11,11 @@ export type BannerConfig = {
   | { type: 'image'; href: string; img: string }
 );
 
+// Sandboxing keeps ad frames origin-isolated and unable to top-navigate the
+// page or trigger downloads (a common malvertising vector) while still
+// allowing their normal click-through behavior via popups.
+const IFRAME_SANDBOX = 'allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox';
+
 // Central ad registry — paste each network's embed code here and reference
 // the slot by key from any component. Create one zone per placement in each
 // ad network's dashboard: separate zones report revenue and fill independently.
@@ -105,6 +110,7 @@ export default function AdSlot({
             src={config.src}
             onLoad={markLoaded}
             scrolling="no"
+            sandbox={IFRAME_SANDBOX}
             {...config.iframeAttrs}
             style={{
               border: 0,

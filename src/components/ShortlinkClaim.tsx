@@ -7,6 +7,19 @@ import { usePopunder, AD_VIEW_SECONDS } from '@/contexts/PopunderContext';
 const REWARD = '0.0005';
 const CURRENCY = 'TON';
 const SHORTLINK_DAILY_LIMIT = 10;
+// Only navigate to domains we trust from the ShrinkMe API response — if the
+// provider (or an attacker controlling it) ever returns another host,
+// refuse to send users there instead of following it blindly.
+const SHORTLINK_ALLOWED_HOST = 'shrinkme.io';
+
+function isAllowedShortlinkRedirect(rawUrl: string): boolean {
+  try {
+    const host = new URL(rawUrl, window.location.origin).hostname.toLowerCase();
+    return host === SHORTLINK_ALLOWED_HOST || host.endsWith(`.${SHORTLINK_ALLOWED_HOST}`);
+  } catch {
+    return false;
+  }
+}
 
 type MessageType = 'success' | 'error' | 'info';
 
@@ -99,6 +112,11 @@ export default function ShortlinkClaim({ address }: { address: string }) {
       );
 
       // Redirect user's browser to the ShrinkMe shortlink
+      if (!isAllowedShortlinkRedirect(data.redirectUrl)) {
+        console.error('[SHORTLINK] Blocked unexpected redirect target:', data.redirectUrl);
+        showMessage('❌ Shortlink returned an unexpected domain — blocked for your safety.', 'error');
+        return;
+      }
       setRedirecting(true);
       window.location.href = data.redirectUrl;
     } catch {

@@ -20,6 +20,18 @@ function extractShortUrl(raw: unknown): string | null {
   return null;
 }
 
+// Defense in depth: never hand the client a redirect URL that isn't the
+// configured shortlink provider. A compromised/misbehaving provider API must
+// not be able to point our users at arbitrary (possibly malicious) hosts.
+function isAllowedShortlinkHost(rawUrl: string): boolean {
+  try {
+    const host = new URL(rawUrl).hostname.toLowerCase();
+    return host === 'shrinkme.io' || host.endsWith('.shrinkme.io');
+  } catch {
+    return false;
+  }
+}
+
 export async function POST(request: Request) {
   try {
     const { address } = await request.json();
@@ -135,6 +147,14 @@ export async function POST(request: Request) {
     }
 
     console.log('[SHORTLINK] Short URL generated:', shortUrl);
+
+    if (!isAllowedShortlinkHost(shortUrl)) {
+      console.error('[SHORTLINK] BLOCKED unexpected redirect host:', { shortUrl });
+      return NextResponse.json({
+        success: false,
+        error: 'Shortlink provider returned an unexpected domain.',
+      }, { status: 502 });
+    }
 
     return NextResponse.json({
       success: true,
