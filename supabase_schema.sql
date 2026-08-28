@@ -62,26 +62,8 @@ DECLARE
   v_daily_limit INT := 10;
   v_effective_limit INT;
   v_bonus_date DATE;
-  v_ad_verified BOOLEAN;
 BEGIN
   v_today := p_now::DATE;
-
-  -- Server-side ad verification: claim is only allowed if a ShrinkMe
-  -- shortlink was completed (server-verified) on the same day.
-  SELECT EXISTS (
-    SELECT 1 FROM public.shortlink_claims
-    WHERE faucetpay_address = p_address
-      AND created_at::DATE = v_today
-      AND status IN ('completed', 'claimed')
-  ) INTO v_ad_verified;
-
-  IF NOT v_ad_verified THEN
-    RETURN jsonb_build_object(
-      'success', false,
-      'error', 'ad_verification_required',
-      'message', 'Ad verification required: complete a shortlink first'
-    );
-  END IF;
 
   SELECT last_claim_at, balance, daily_claim_count, last_claim_date, bonus_claims, bonus_claims_date
   INTO v_last, v_balance, v_daily_count, v_last_date, v_bonus, v_bonus_date

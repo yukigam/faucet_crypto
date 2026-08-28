@@ -50,28 +50,6 @@ export default function FaucetClaim({ address }: { address: string }) {
   const [captchaRetry, setCaptchaRetry] = useState(0);
   const [adLoaded, setAdLoaded] = useState(false);
   const [adTimedOut, setAdTimedOut] = useState(false);
-  const [adVerified, setAdVerified] = useState(false);
-
-  const checkAdVerified = useCallback(async () => {
-    try {
-      const res = await fetch(`/api/ad/status?address=${encodeURIComponent(address)}`);
-      const data = await res.json();
-      if (data.verified) {
-        setAdVerified(true);
-      } else {
-        // Fall back to local flag (set when the shortlink callback page loads)
-        const flag = localStorage.getItem(`ad_verified_${address}`);
-        const flagDate = flag ? flag.split('T')[0] : null;
-        const today = new Date().toISOString().split('T')[0];
-        setAdVerified(flagDate === today);
-      }
-    } catch {
-      const flag = localStorage.getItem(`ad_verified_${address}`);
-      const flagDate = flag ? flag.split('T')[0] : null;
-      const today = new Date().toISOString().split('T')[0];
-      setAdVerified(flagDate === today);
-    }
-  }, [address]);
 
   useEffect(() => {
     const stored = localStorage.getItem(`cooldown_${address}`);
@@ -96,19 +74,6 @@ export default function FaucetClaim({ address }: { address: string }) {
     const id = setInterval(() => setCountdown((c) => Math.max(0, c - 1000)), 1000);
     return () => clearInterval(id);
   }, [countdown]);
-
-  // Verify ad interaction server-side on mount, on focus (returning from
-  // the shortlink page), and periodically
-  useEffect(() => {
-    checkAdVerified();
-    const onFocus = () => checkAdVerified();
-    window.addEventListener('focus', onFocus);
-    const interval = setInterval(checkAdVerified, 60_000);
-    return () => {
-      window.removeEventListener('focus', onFocus);
-      clearInterval(interval);
-    };
-  }, [checkAdVerified]);
 
   // If the actual ad iframe/network never responds, lock the claim button
   useEffect(() => {
@@ -150,12 +115,6 @@ export default function FaucetClaim({ address }: { address: string }) {
       return;
     }
 
-    // Block if ad interaction not verified
-    if (!adVerified) {
-      showMessage('⚠️ Complete a shortlink first to unlock faucet claims', 'info');
-      return;
-    }
-
     // Block if ads did not load their network response
     if (adBlockDetected || adTimedOut) {
       showMessage('⚠️ Ads are not loading. Disable your adblocker or shields.', 'info');
@@ -190,11 +149,6 @@ export default function FaucetClaim({ address }: { address: string }) {
       resetCaptcha();
 
       if (!res.ok) {
-        if (res.status === 403 && data.code === 'ad_verification_required') {
-          setAdVerified(false);
-          showMessage('⚠️ Complete a shortlink first to unlock faucet claims', 'info');
-          return;
-        }
         if (data.daily_limit && data.daily_claims && data.daily_claims >= data.daily_limit) {
           setLimitReached(true);
           setDailyClaims(data.daily_claims);
@@ -215,7 +169,14 @@ export default function FaucetClaim({ address }: { address: string }) {
       setDailyLimit(data.daily_limit);
       setBonusClaims(data.bonus_claims ?? 0);
       setEffectiveLimit(data.effective_limit ?? data.daily_limit);
-      showMessage(`✅ Successfully claimed ${REWARD} ${CURRENCY}!`, 'success');
+      // Payout result from the FaucetPay send — surface it instead of
+      // silently claiming success when the transfer was rejected
+      const payoutNote = data.txid
+        ? ' Paid to your FaucetPay account.'
+        : data.warning
+          ? ` ⚠️ ${data.warning}`
+          : '';
+      showMessage(`✅ Successfully claimed ${REWARD} ${CURRENCY}!${payoutNote}`, 'success');
       localStorage.setItem(`cooldown_${address}`, String(Date.now()));
       setCountdown(COOLDOWN_MS);
     } catch {
@@ -245,12 +206,10 @@ export default function FaucetClaim({ address }: { address: string }) {
         ? 'Ads Not Loading'
         : popunderChecking
           ? `Watching Ad… ${adSecondsRemaining ?? AD_VIEW_SECONDS}s`
-          : !popunderVerified
-            ? popunderBlocked
-              ? 'Popup Blocked — Allow Popups'
-              : 'Click to Trigger Popunder Ad'
-            : !adVerified
-              ? 'Complete a Shortlink First'
+            : !popunderVerified
+              ? popunderBlocked
+                ? 'Popup Blocked — Allow Popups'
+                : 'Click to Trigger Popunder Ad'
               : isLimitReached
                 ? 'Limit Reached'
                 : isCooldown
@@ -261,7 +220,6 @@ export default function FaucetClaim({ address }: { address: string }) {
     loading ||
     adsBlocked ||
     popunderChecking ||
-    !adVerified ||
     isLimitReached ||
     isCooldown ||
     captchaUnavailable;
@@ -287,8 +245,7 @@ export default function FaucetClaim({ address }: { address: string }) {
             Reward: {REWARD} {CURRENCY} per claim
           </p>
           <p className="text-xs text-yellow-600 mt-1">
-            10 free claims every day — complete a shortlink first to unlock them, and each extra
-            shortlink adds +10 more claims!
+            10 free claims every day — complete shortlinks to earn +10 bonus claims each!
           </p>
         </div>
 
@@ -391,11 +348,6 @@ export default function FaucetClaim({ address }: { address: string }) {
               : popunderClosedEarly
                 ? 'The popunder ad was closed too early — click again and keep the ad open to verify interaction.'
                 : 'Click the button to trigger the popunder ad. Keep it open to verify the ad interaction.'}
-          </div>
-        )}
-        {!adsBlocked && popunderVerified && !adVerified && (
-          <div className="border rounded-lg px-4 py-3 text-sm font-medium bg-blue-100 border-blue-200 text-blue-700">
-            Complete a shortlink to verify ad interaction and unlock faucet claims.
           </div>
         )}
         {isLimitReached && !adsBlocked && (
