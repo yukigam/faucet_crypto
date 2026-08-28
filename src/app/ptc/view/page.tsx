@@ -5,6 +5,7 @@ import { useSearchParams } from 'next/navigation';
 import { Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import SidebarNav from '@/components/SidebarNav';
 import AdSlot from '@/components/AdSlot';
+import { useBannerClickDetection } from '@/hooks/useBannerClickDetection';
 
 const CURRENCY = 'TON';
 // Server rejects verification 10 minutes after the session starts
@@ -19,6 +20,7 @@ type AdStatus = {
   duration_seconds?: number;
   reward?: number;
   status?: 'pending' | 'completed';
+  watch_started_at?: string | null;
   error?: string;
 };
 
@@ -33,10 +35,48 @@ function ViewAd() {
   const [phase, setPhase] = useState<Phase>('loading');
   const [adInfo, setAdInfo] = useState<AdStatus | null>(null);
   const [secondsLeft, setSecondsLeft] = useState<number | null>(null);
+  const [bannerClicked, setBannerClicked] = useState(false);
+  const [registeringClick, setRegisteringClick] = useState(false);
   const [errorText, setErrorText] = useState('');
   const [result, setResult] = useState<{ reward: number; balance: number; txid?: string; warning?: string } | null>(null);
   const startedAtRef = useRef<number | null>(null);
   const verifyFiredRef = useRef(false);
+  const bannerClickInFlightRef = useRef(false);
+  const durationRef = useRef(30);
+
+  const registerBannerClick = useCallback(async (t: string) => {
+    if (bannerClickInFlightRef.current || bannerClicked) return;
+    bannerClickInFlightRef.current = true;
+    setRegisteringClick(true);
+    try {
+      const res = await fetch('/api/ptc/banner-click', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: t }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setBannerClicked(true);
+        setSecondsLeft(durationRef.current);
+      } else {
+        setErrorText(data.error || 'Failed to register banner click.');
+        setPhase('error');
+      }
+    } catch {
+      setErrorText('Network error while registering banner click.');
+      setPhase('error');
+    } finally {
+      setRegisteringClick(false);
+      bannerClickInFlightRef.current = false;
+    }
+  }, [bannerClicked]);
+
+  const handleBannerDetected = useCallback(() => {
+    if (!token || bannerClicked || phase !== 'watching') return;
+    void registerBannerClick(token);
+  }, [token, bannerClicked, phase, registerBannerClick]);
+
+  useBannerClickDetection(phase === 'watching' && !bannerClicked, handleBannerDetected);
 
   const verifyReward = useCallback(async (t: string) => {
     setPhase('verifying');
@@ -57,6 +97,11 @@ function ViewAd() {
       } else if (data.code === 'session_expired') {
         setErrorText('View session expired — start the ad again from the PTC Ads list.');
         setPhase('error');
+      } else if (data.code === 'banner_not_clicked') {
+        verifyFiredRef.current = false;
+        setErrorText('Click the Adsterra banner ad to start the timer.');
+        setBannerClicked(false);
+        setPhase('watching');
       } else {
         setErrorText(data.error || 'Verification failed. Try starting the ad again.');
         setPhase('error');
@@ -91,7 +136,19 @@ function ViewAd() {
 
         setAdInfo(data);
         startedAtRef.current = Date.now();
-        setSecondsLeft(data.duration_seconds ?? 30);
+
+        const duration = data.duration_seconds ?? 30;
+        durationRef.current = duration;
+        if (data.watch_started_at) {
+          const elapsed = Math.floor(
+            (Date.now() - new Date(data.watch_started_at).getTime()) / 1000,
+          );
+          setBannerClicked(true);
+          setSecondsLeft(Math.max(0, duration - elapsed));
+        } else {
+          setBannerClicked(false);
+          setSecondsLeft(duration);
+        }
         setPhase('watching');
       } catch {
         if (!cancelled) {
@@ -104,9 +161,9 @@ function ViewAd() {
     return () => { cancelled = true; };
   }, [token]);
 
-  // Countdown → auto-verify once
+  // Countdown → auto-verify once (only runs after banner click)
   useEffect(() => {
-    if (phase !== 'watching' || secondsLeft === null || !token) return;
+    if (phase !== 'watching' || !bannerClicked || secondsLeft === null || !token) return;
 
     if (secondsLeft <= 0) {
       if (!verifyFiredRef.current) {
@@ -117,7 +174,7 @@ function ViewAd() {
     }
     const id = setTimeout(() => setSecondsLeft((s) => Math.max(0, (s ?? 0) - 1)), 1000);
     return () => clearTimeout(id);
-  }, [phase, secondsLeft, token, verifyReward]);
+  }, [phase, bannerClicked, secondsLeft, token, verifyReward]);
 
   // Auto-redirect back to the ads list if unverified past the grace window
   useEffect(() => {
@@ -130,9 +187,10 @@ function ViewAd() {
   }, [phase]);
 
   const duration = adInfo?.duration_seconds ?? 0;
-  const progress = secondsLeft !== null && duration > 0
+  const progress = bannerClicked && secondsLeft !== null && duration > 0
     ? ((duration - secondsLeft) / duration) * 100
     : 0;
+  const timerPaused = phase === 'watching' && !bannerClicked;
 
   return (
     <main className="min-h-screen flex flex-col items-center p-6 gap-6 md:pl-64">
@@ -182,21 +240,47 @@ function ViewAd() {
 
               <div className="flex items-center justify-between px-2">
                 <span className="text-sm text-gray-600">
-                  {phase === 'verifying' ? 'Crediting reward…' : 'Keep this page open'}
+                  {phase === 'verifying'
+                    ? 'Crediting reward…'
+                    : timerPaused
+                      ? 'Click the banner to start'
+                      : 'Keep this page open'}
                 </span>
-                <span className={`font-mono font-bold text-2xl ${secondsLeft === 0 ? 'text-green-600' : 'text-gray-900'}`}>
-                  {phase === 'verifying' ? '✓' : `${secondsLeft ?? 0}s`}
+                <span className={`font-mono font-bold text-2xl ${
+                  timerPaused
+                    ? 'text-amber-600'
+                    : secondsLeft === 0
+                      ? 'text-green-600'
+                      : 'text-gray-900'
+                }`}>
+                  {phase === 'verifying'
+                    ? '✓'
+                    : timerPaused
+                      ? '⏸'
+                      : `${secondsLeft ?? 0}s`}
                 </span>
               </div>
               <div className="h-2 w-full bg-blue-100 rounded-full overflow-hidden">
                 <div
-                  className="h-full bg-gradient-to-r from-cyan-500 to-green-500 rounded-full transition-all duration-1000 ease-linear"
-                  style={{ width: `${progress}%` }}
+                  className={`h-full rounded-full transition-all duration-1000 ease-linear ${
+                    timerPaused
+                      ? 'bg-amber-400 w-0'
+                      : 'bg-gradient-to-r from-cyan-500 to-green-500'
+                  }`}
+                  style={{ width: timerPaused ? '0%' : `${progress}%` }}
                 />
               </div>
 
-              {/* Adsterra banner stays in view for the whole watch time */}
-              <AdSlot slot="ptcView" />
+              {timerPaused && (
+                <div className="border rounded-lg px-4 py-3 text-sm font-medium bg-amber-50 border-amber-200 text-amber-800">
+                  {registeringClick
+                    ? 'Registering banner click…'
+                    : 'Click the Adsterra banner below to start the viewing timer. The full watch duration begins after your click.'}
+                </div>
+              )}
+
+              {/* Adsterra banner — timer stays paused until user clicks it */}
+              <AdSlot slot="ptcView" trackPtcBanner />
             </>
           )}
 
@@ -240,7 +324,12 @@ function ViewAd() {
         </div>
       </div>
 
-      <AdSlot slot="ptcView" className="w-full max-w-md" />
+      {phase === 'watching' && (
+        <AdSlot slot="ptcView" trackPtcBanner className="w-full max-w-md" />
+      )}
+      {phase !== 'watching' && (
+        <AdSlot slot="ptcView" className="w-full max-w-md" />
+      )}
     </main>
   );
 }

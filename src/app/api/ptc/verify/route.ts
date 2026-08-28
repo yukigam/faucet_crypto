@@ -79,10 +79,11 @@ export async function POST(request: Request) {
         invalid_token: 'Invalid ad view session.',
         already_claimed: 'Reward already credited for this session.',
         timer_not_finished: 'The ad view timer is not finished yet.',
+        banner_not_clicked: 'Click the Adsterra banner ad to start the timer.',
         session_expired: 'View session expired — start the ad again.',
         ad_unavailable: 'This ad is no longer available.',
       };
-      const status = result.error === 'timer_not_finished' ? 403 : 400;
+      const status = result.error === 'timer_not_finished' || result.error === 'banner_not_clicked' ? 403 : 400;
       return NextResponse.json({
         success: false,
         error: messages[result.error ?? ''] || 'Verification failed',
