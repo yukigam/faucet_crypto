@@ -6,6 +6,7 @@ import { Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import SidebarNav from '@/components/SidebarNav';
 import AdSlot from '@/components/AdSlot';
 import { useBannerClickDetection } from '@/hooks/useBannerClickDetection';
+import { usePtcWatchTimer } from '@/hooks/usePtcWatchTimer';
 
 const CURRENCY = 'TON';
 // Server rejects verification 10 minutes after the session starts
@@ -21,6 +22,7 @@ type AdStatus = {
   reward?: number;
   status?: 'pending' | 'completed';
   watch_started_at?: string | null;
+  active_watch_seconds?: number;
   error?: string;
 };
 
@@ -34,8 +36,8 @@ function ViewAd() {
 
   const [phase, setPhase] = useState<Phase>('loading');
   const [adInfo, setAdInfo] = useState<AdStatus | null>(null);
-  const [secondsLeft, setSecondsLeft] = useState<number | null>(null);
   const [bannerClicked, setBannerClicked] = useState(false);
+  const [activeSeconds, setActiveSeconds] = useState(0);
   const [registeringClick, setRegisteringClick] = useState(false);
   const [errorText, setErrorText] = useState('');
   const [result, setResult] = useState<{ reward: number; balance: number; txid?: string; warning?: string } | null>(null);
@@ -44,39 +46,25 @@ function ViewAd() {
   const bannerClickInFlightRef = useRef(false);
   const durationRef = useRef(30);
 
-  const registerBannerClick = useCallback(async (t: string) => {
-    if (bannerClickInFlightRef.current || bannerClicked) return;
-    bannerClickInFlightRef.current = true;
-    setRegisteringClick(true);
-    try {
-      const res = await fetch('/api/ptc/banner-click', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token: t }),
-      });
-      const data = await res.json();
-      if (res.ok && data.success) {
-        setBannerClicked(true);
-        setSecondsLeft(durationRef.current);
-      } else {
-        setErrorText(data.error || 'Failed to register banner click.');
-        setPhase('error');
-      }
-    } catch {
-      setErrorText('Network error while registering banner click.');
-      setPhase('error');
-    } finally {
-      setRegisteringClick(false);
-      bannerClickInFlightRef.current = false;
-    }
-  }, [bannerClicked]);
+  const duration = adInfo?.duration_seconds ?? 0;
 
-  const handleBannerDetected = useCallback(() => {
-    if (!token || bannerClicked || phase !== 'watching') return;
-    void registerBannerClick(token);
-  }, [token, bannerClicked, phase, registerBannerClick]);
+  const onWatchCompleteRef = useRef<() => void>(() => {});
 
-  useBannerClickDetection(phase === 'watching' && !bannerClicked, handleBannerDetected);
+  const {
+    secondsLeft,
+    pauseReason,
+    isPaused,
+    progress,
+    resetCompletion,
+    syncRemaining,
+  } = usePtcWatchTimer({
+    token,
+    duration,
+    bannerClicked,
+    enabled: phase === 'watching',
+    initialActiveSeconds: activeSeconds,
+    onComplete: () => onWatchCompleteRef.current(),
+  });
 
   const verifyReward = useCallback(async (t: string) => {
     setPhase('verifying');
@@ -102,6 +90,13 @@ function ViewAd() {
         setErrorText('Click the Adsterra banner ad to start the timer.');
         setBannerClicked(false);
         setPhase('watching');
+      } else if (data.code === 'timer_not_finished') {
+        verifyFiredRef.current = false;
+        resetCompletion();
+        const elapsed = typeof data.elapsed === 'number' ? data.elapsed : 0;
+        setActiveSeconds(elapsed);
+        syncRemaining(elapsed);
+        setPhase('watching');
       } else {
         setErrorText(data.error || 'Verification failed. Try starting the ad again.');
         setPhase('error');
@@ -110,7 +105,50 @@ function ViewAd() {
       setErrorText('Network error while verifying — your session stays valid for 10 minutes.');
       setPhase('error');
     }
-  }, []);
+  }, [resetCompletion, syncRemaining]);
+
+  useEffect(() => {
+    onWatchCompleteRef.current = () => {
+      if (!token || verifyFiredRef.current) return;
+      verifyFiredRef.current = true;
+      void verifyReward(token);
+    };
+  }, [token, verifyReward]);
+
+  const registerBannerClick = useCallback(async (t: string) => {
+    if (bannerClickInFlightRef.current || bannerClicked) return;
+    bannerClickInFlightRef.current = true;
+    setRegisteringClick(true);
+    try {
+      const res = await fetch('/api/ptc/banner-click', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: t }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setBannerClicked(true);
+        setActiveSeconds(0);
+        syncRemaining(0);
+      } else {
+        setErrorText(data.error || 'Failed to register banner click.');
+        setPhase('error');
+      }
+    } catch {
+      setErrorText('Network error while registering banner click.');
+      setPhase('error');
+    } finally {
+      setRegisteringClick(false);
+      bannerClickInFlightRef.current = false;
+    }
+  }, [bannerClicked, syncRemaining]);
+
+  const handleBannerDetected = useCallback(() => {
+    if (!token || bannerClicked || phase !== 'watching') return;
+    void registerBannerClick(token);
+  }, [token, bannerClicked, phase, registerBannerClick]);
+
+  useBannerClickDetection(phase === 'watching' && !bannerClicked, handleBannerDetected);
 
   // Load ad info for this token
   useEffect(() => {
@@ -134,20 +172,18 @@ function ViewAd() {
           return;
         }
 
+        const adDuration = data.duration_seconds ?? 30;
+        const watched = data.active_watch_seconds ?? 0;
+
         setAdInfo(data);
         startedAtRef.current = Date.now();
+        durationRef.current = adDuration;
+        setActiveSeconds(watched);
 
-        const duration = data.duration_seconds ?? 30;
-        durationRef.current = duration;
         if (data.watch_started_at) {
-          const elapsed = Math.floor(
-            (Date.now() - new Date(data.watch_started_at).getTime()) / 1000,
-          );
           setBannerClicked(true);
-          setSecondsLeft(Math.max(0, duration - elapsed));
         } else {
           setBannerClicked(false);
-          setSecondsLeft(duration);
         }
         setPhase('watching');
       } catch {
@@ -161,21 +197,6 @@ function ViewAd() {
     return () => { cancelled = true; };
   }, [token]);
 
-  // Countdown → auto-verify once (only runs after banner click)
-  useEffect(() => {
-    if (phase !== 'watching' || !bannerClicked || secondsLeft === null || !token) return;
-
-    if (secondsLeft <= 0) {
-      if (!verifyFiredRef.current) {
-        verifyFiredRef.current = true;
-        void verifyReward(token);
-      }
-      return;
-    }
-    const id = setTimeout(() => setSecondsLeft((s) => Math.max(0, (s ?? 0) - 1)), 1000);
-    return () => clearTimeout(id);
-  }, [phase, bannerClicked, secondsLeft, token, verifyReward]);
-
   // Auto-redirect back to the ads list if unverified past the grace window
   useEffect(() => {
     if (phase !== 'watching' || !startedAtRef.current) return;
@@ -186,11 +207,14 @@ function ViewAd() {
     return () => clearTimeout(id);
   }, [phase]);
 
-  const duration = adInfo?.duration_seconds ?? 0;
-  const progress = bannerClicked && secondsLeft !== null && duration > 0
-    ? ((duration - secondsLeft) / duration) * 100
-    : 0;
-  const timerPaused = phase === 'watching' && !bannerClicked;
+  const statusLabel =
+    phase === 'verifying'
+      ? 'Crediting reward…'
+      : pauseReason === 'banner'
+        ? 'Click the banner to start'
+        : pauseReason === 'focus'
+          ? 'Timer paused — return to this tab'
+          : 'Keep this page focused';
 
   return (
     <main className="min-h-screen flex flex-col items-center p-6 gap-6 md:pl-64">
@@ -239,15 +263,9 @@ function ViewAd() {
               </div>
 
               <div className="flex items-center justify-between px-2">
-                <span className="text-sm text-gray-600">
-                  {phase === 'verifying'
-                    ? 'Crediting reward…'
-                    : timerPaused
-                      ? 'Click the banner to start'
-                      : 'Keep this page open'}
-                </span>
+                <span className="text-sm text-gray-600">{statusLabel}</span>
                 <span className={`font-mono font-bold text-2xl ${
-                  timerPaused
+                  isPaused
                     ? 'text-amber-600'
                     : secondsLeft === 0
                       ? 'text-green-600'
@@ -255,23 +273,23 @@ function ViewAd() {
                 }`}>
                   {phase === 'verifying'
                     ? '✓'
-                    : timerPaused
+                    : isPaused
                       ? '⏸'
-                      : `${secondsLeft ?? 0}s`}
+                      : `${secondsLeft}s`}
                 </span>
               </div>
               <div className="h-2 w-full bg-blue-100 rounded-full overflow-hidden">
                 <div
                   className={`h-full rounded-full transition-all duration-1000 ease-linear ${
-                    timerPaused
-                      ? 'bg-amber-400 w-0'
+                    isPaused
+                      ? 'bg-amber-400'
                       : 'bg-gradient-to-r from-cyan-500 to-green-500'
                   }`}
-                  style={{ width: timerPaused ? '0%' : `${progress}%` }}
+                  style={{ width: isPaused && pauseReason === 'banner' ? '0%' : `${progress}%` }}
                 />
               </div>
 
-              {timerPaused && (
+              {pauseReason === 'banner' && (
                 <div className="border rounded-lg px-4 py-3 text-sm font-medium bg-amber-50 border-amber-200 text-amber-800">
                   {registeringClick
                     ? 'Registering banner click…'
@@ -279,7 +297,12 @@ function ViewAd() {
                 </div>
               )}
 
-              {/* Adsterra banner — timer stays paused until user clicks it */}
+              {pauseReason === 'focus' && (
+                <div className="border rounded-lg px-4 py-3 text-sm font-medium bg-blue-50 border-blue-200 text-blue-800">
+                  Timer paused while you are away. Switch back to this tab and keep it focused to continue watching.
+                </div>
+              )}
+
               <AdSlot slot="ptcView" trackPtcBanner />
             </>
           )}

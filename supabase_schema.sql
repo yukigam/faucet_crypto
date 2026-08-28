@@ -303,6 +303,8 @@ CREATE TABLE IF NOT EXISTS public.ptc_views (
   reward NUMERIC NOT NULL,
   started_at TIMESTAMPTZ DEFAULT NOW(),
   watch_started_at TIMESTAMPTZ,
+  active_watch_seconds INT NOT NULL DEFAULT 0,
+  last_watch_tick_at TIMESTAMPTZ,
   completed_at TIMESTAMPTZ
 );
 
@@ -429,7 +431,73 @@ BEGIN
     'status', v_row.status,
     'started_at', v_row.started_at,
     'watch_started_at', v_row.watch_started_at,
+    'active_watch_seconds', COALESCE(v_row.active_watch_seconds, 0),
     'ad_active', v_row.ad_active
+  );
+END;
+$$;
+
+-- RPC: credit one second of active (focused-tab) watch time
+CREATE OR REPLACE FUNCTION public.ptc_watch_tick(
+  p_token TEXT,
+  p_now TIMESTAMPTZ
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER SET search_path = ''
+AS $$
+DECLARE
+  v_row RECORD;
+  v_duration INT;
+BEGIN
+  SELECT v.*, a.duration_seconds AS ad_duration
+  INTO v_row
+  FROM public.ptc_views v
+  JOIN public.ptc_ads a ON a.id = v.ad_id
+  WHERE v.token = p_token
+  FOR UPDATE OF v;
+
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('success', false, 'error', 'invalid_token');
+  END IF;
+
+  v_duration := v_row.ad_duration;
+
+  IF v_row.status = 'completed' THEN
+    RETURN jsonb_build_object('success', false, 'error', 'already_claimed');
+  END IF;
+
+  IF EXTRACT(EPOCH FROM (p_now - v_row.started_at)) > 600 THEN
+    RETURN jsonb_build_object('success', false, 'error', 'session_expired');
+  END IF;
+
+  IF v_row.watch_started_at IS NULL THEN
+    RETURN jsonb_build_object('success', false, 'error', 'banner_not_clicked');
+  END IF;
+
+  IF v_row.last_watch_tick_at IS NOT NULL
+     AND EXTRACT(EPOCH FROM (p_now - v_row.last_watch_tick_at)) < 0.85 THEN
+    RETURN jsonb_build_object(
+      'success', true,
+      'active_seconds', v_row.active_watch_seconds,
+      'remaining', GREATEST(0, v_duration - v_row.active_watch_seconds),
+      'duration_seconds', v_duration
+    );
+  END IF;
+
+  IF v_row.active_watch_seconds < v_duration THEN
+    UPDATE public.ptc_views
+    SET active_watch_seconds = active_watch_seconds + 1,
+        last_watch_tick_at = p_now
+    WHERE id = v_row.id;
+    v_row.active_watch_seconds := v_row.active_watch_seconds + 1;
+  END IF;
+
+  RETURN jsonb_build_object(
+    'success', true,
+    'active_seconds', v_row.active_watch_seconds,
+    'remaining', GREATEST(0, v_duration - v_row.active_watch_seconds),
+    'duration_seconds', v_duration
   );
 END;
 $$;
@@ -489,7 +557,6 @@ SECURITY DEFINER SET search_path = ''
 AS $$
 DECLARE
   v_row RECORD;
-  v_elapsed INT;
 BEGIN
   SELECT v.*, a.duration_seconds, a.active AS ad_active
   INTO v_row
@@ -520,12 +587,12 @@ BEGIN
     RETURN jsonb_build_object('success', false, 'error', 'banner_not_clicked');
   END IF;
 
-  v_elapsed := EXTRACT(EPOCH FROM (p_now - v_row.watch_started_at));
-
-  -- Timer is enforced SERVER-side: reward only after the ad view time
-  -- (measured from banner click), tokens expire if verified too long after starting.
-  IF v_elapsed < v_row.duration_seconds THEN
-    RETURN jsonb_build_object('success', false, 'error', 'timer_not_finished', 'elapsed', v_elapsed);
+  IF COALESCE(v_row.active_watch_seconds, 0) < v_row.duration_seconds THEN
+    RETURN jsonb_build_object(
+      'success', false,
+      'error', 'timer_not_finished',
+      'elapsed', COALESCE(v_row.active_watch_seconds, 0)
+    );
   END IF;
 
   UPDATE public.ptc_views SET status = 'completed', completed_at = p_now
