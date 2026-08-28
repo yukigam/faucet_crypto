@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import SidebarNav from '@/components/SidebarNav';
+import AdSlot from '@/components/AdSlot';
 
 const CURRENCY = 'TON';
 // Server rejects verification 10 minutes after the session starts
@@ -90,7 +91,7 @@ function ViewAd() {
 
         setAdInfo(data);
         startedAtRef.current = Date.now();
-        setSecondsLeft(data.duration_seconds ?? 8);
+        setSecondsLeft(data.duration_seconds ?? 30);
         setPhase('watching');
       } catch {
         if (!cancelled) {
@@ -193,6 +194,9 @@ function ViewAd() {
                   style={{ width: `${progress}%` }}
                 />
               </div>
+
+              {/* Adsterra banner stays in view for the whole watch time */}
+              <AdSlot slot="ptcView" />
             </>
           )}
 
@@ -203,6 +207,7 @@ function ViewAd() {
                 +{fmtAmount(result.reward)} {CURRENCY} credited!
               </p>
               <p className="text-sm text-gray-600">New balance: {fmtAmount(result.balance)} {CURRENCY}</p>
+              <AdSlot slot="ptcView" />
               <Link
                 href="/ptc"
                 className="block w-full py-2.5 rounded-lg font-semibold text-sm bg-gradient-to-r from-cyan-500 to-blue-500 text-white hover:opacity-90 transition-opacity"
@@ -226,6 +231,8 @@ function ViewAd() {
           )}
         </div>
       </div>
+
+      <AdSlot slot="ptcView" className="w-full max-w-md" />
     </main>
   );
 }

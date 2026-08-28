@@ -2,8 +2,9 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useCallback, useEffect, useState } from 'react';
+import { Fragment, useCallback, useEffect, useState } from 'react';
 import SidebarNav from '@/components/SidebarNav';
+import AdSlot from '@/components/AdSlot';
 
 const STORAGE_KEY = 'faucetpay_address';
 const CURRENCY = 'TON';
@@ -115,6 +116,7 @@ export default function PtcPage() {
             </form>
           </div>
         </div>
+        <AdSlot slot="ptcListTop" className="w-full max-w-md" />
       </main>
     );
   }
@@ -140,6 +142,8 @@ export default function PtcPage() {
         <p className="text-xs text-yellow-600 mt-1">Watch each ad once per day to earn its reward.</p>
       </div>
 
+      <AdSlot slot="ptcListTop" className="w-full max-w-md" />
+
       {message && (
         <div className="border rounded-lg px-4 py-3 text-sm font-medium bg-blue-100 border-blue-200 text-blue-700 max-w-md">
           {message}
@@ -157,38 +161,48 @@ export default function PtcPage() {
             No ads available right now — check back soon!
           </div>
         )}
-        {ads?.map((ad) => (
-          <div key={ad.id} className="bg-gray-800/80 border border-gray-700 rounded-xl p-4 space-y-2">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <p className="font-semibold text-white text-sm">{ad.title}</p>
-                <p className="text-xs text-gray-400 mt-0.5">
-                  Reward: <span className="font-bold text-green-400">{fmtAmount(ad.reward)} {CURRENCY}</span>
-                  {' · '}
-                  Watch time: {ad.duration_seconds}s
-                </p>
+        {ads?.map((ad, index) => (
+          <Fragment key={ad.id}>
+            <div className="bg-gray-800/80 border border-gray-700 rounded-xl p-4 space-y-2">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="font-semibold text-white text-sm">{ad.title}</p>
+                  <p className="text-xs text-gray-400 mt-0.5">
+                    Reward: <span className="font-bold text-green-400">{fmtAmount(ad.reward)} {CURRENCY}</span>
+                    {' · '}
+                    Watch time: {ad.duration_seconds}s
+                  </p>
+                </div>
+                {ad.viewed_today ? (
+                  <span className="shrink-0 px-4 py-2 rounded-lg text-sm font-semibold bg-gray-700 text-green-400">
+                    ✓ Done
+                  </span>
+                ) : (
+                  <button
+                    onClick={() => viewAd(ad)}
+                    disabled={startingId !== null}
+                    className={`shrink-0 px-5 py-2 rounded-lg text-sm font-semibold transition-all ${
+                      startingId && startingId !== ad.id
+                        ? 'bg-gray-600 text-gray-400 cursor-not-allowed'
+                        : 'bg-gradient-to-r from-cyan-500 to-blue-500 text-white hover:scale-105 active:scale-95'
+                    }`}
+                  >
+                    {startingId === ad.id ? 'Opening…' : 'View'}
+                  </button>
+                )}
               </div>
-              {ad.viewed_today ? (
-                <span className="shrink-0 px-4 py-2 rounded-lg text-sm font-semibold bg-gray-700 text-green-400">
-                  ✓ Done
-                </span>
-              ) : (
-                <button
-                  onClick={() => viewAd(ad)}
-                  disabled={startingId !== null}
-                  className={`shrink-0 px-5 py-2 rounded-lg text-sm font-semibold transition-all ${
-                    startingId && startingId !== ad.id
-                      ? 'bg-gray-600 text-gray-400 cursor-not-allowed'
-                      : 'bg-gradient-to-r from-cyan-500 to-blue-500 text-white hover:scale-105 active:scale-95'
-                  }`}
-                >
-                  {startingId === ad.id ? 'Opening…' : 'View'}
-                </button>
-              )}
             </div>
-          </div>
+            {/* Interleave an Adsterra banner every 10 ads — users scrolling the
+                long list hit an impression even if they never open an ad */}
+            {index % 10 === 9 && index !== ads.length - 1 && (
+              <AdSlot slot="ptcListInline" className="w-full max-w-md" />
+            )}
+          </Fragment>
         ))}
       </div>
+
+      {/* Same zone as the top slot — each frame loads and reports its own impression */}
+      <AdSlot slot="ptcListTop" className="w-full max-w-md" />
 
       <Link href="/" className="text-xs text-gray-500 hover:text-white transition-colors">
         ← Back to Faucet
