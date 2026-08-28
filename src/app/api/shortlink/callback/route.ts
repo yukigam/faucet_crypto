@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
+import { sendFaucetPayPayout } from '@/lib/faucetpay';
 
-const FAUCETPAY_API = 'https://faucetpay.io/api/v1/send';
 const SATOSHI_AMOUNT = '50000';
 const DECIMAL_AMOUNT = '0.0005';
 const CURRENCY = 'TON';
@@ -68,45 +68,25 @@ export async function GET(request: Request) {
 
     console.log('[SHORTLINK_CALLBACK] Claim verified, sending FaucetPay payout', { to: result.address, amount: DECIMAL_AMOUNT });
 
-    // Send payment via FaucetPay
-    const fpForm = new URLSearchParams();
-    fpForm.append('api_key', apiKey);
-    fpForm.append('to', result.address!);
-    fpForm.append('amount', SATOSHI_AMOUNT);
-    fpForm.append('currency', CURRENCY);
-
-    const fpRes = await fetch(FAUCETPAY_API, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: fpForm.toString(),
+    const payout = await sendFaucetPayPayout({
+      apiKey,
+      to: result.address!,
+      amountSatoshi: SATOSHI_AMOUNT,
+      currency: CURRENCY,
     });
 
-    const rawText = await fpRes.text();
-    console.log('[SHORTLINK_CALLBACK] FaucetPay raw response:', rawText);
-
-    let fpSuccess = false;
-    let fpId: string | undefined;
-    try {
-      const fpData = JSON.parse(rawText);
-      fpSuccess = fpData.status === 200;
-      fpId = fpData.id;
-      console.log('[SHORTLINK_CALLBACK] FaucetPay parsed:', { status: fpData.status, id: fpData.id, message: fpData.message });
-    } catch {
-      console.error('[SHORTLINK_CALLBACK] FaucetPay non-JSON response');
-    }
-
-    if (fpSuccess) {
-      console.log('[SHORTLINK_CALLBACK] Payout successful', { txid: fpId });
+    if (payout.ok) {
+      console.log('[SHORTLINK_CALLBACK] Payout successful', { txid: payout.txid });
       return NextResponse.redirect(new URL(
-        `/shortlink/callback?status=success&address=${encodeURIComponent(result.address || '')}&reward=${DECIMAL_AMOUNT}&daily_claims=${result.daily_claims}&bonus_added=${result.bonus_claims_added || 0}&txid=${fpId || ''}`,
+        `/shortlink/callback?status=success&address=${encodeURIComponent(result.address || '')}&reward=${DECIMAL_AMOUNT}&daily_claims=${result.daily_claims}&bonus_added=${result.bonus_claims_added || 0}&txid=${payout.txid || ''}`,
         request.url
       ));
     }
 
     // Payment failed but DB recorded — still return success with warning
-    console.warn('[SHORTLINK_CALLBACK] Payout failed but DB recorded');
+    console.warn('[SHORTLINK_CALLBACK] Payout failed but DB recorded:', payout.error);
     return NextResponse.redirect(new URL(
-      `/shortlink/callback?status=success&address=${encodeURIComponent(result.address || '')}&reward=${DECIMAL_AMOUNT}&daily_claims=${result.daily_claims}&bonus_added=${result.bonus_claims_added || 0}&warning=Payment+may+be+delayed`,
+      `/shortlink/callback?status=success&address=${encodeURIComponent(result.address || '')}&reward=${DECIMAL_AMOUNT}&daily_claims=${result.daily_claims}&bonus_added=${result.bonus_claims_added || 0}&warning=${encodeURIComponent(payout.error || 'Payment may be delayed')}`,
       request.url
     ));
   } catch (err) {

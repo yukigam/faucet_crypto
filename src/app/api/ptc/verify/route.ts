@@ -1,5 +1,8 @@
 import { NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
+import { sendFaucetPayPayout, toSatoshi } from '@/lib/faucetpay';
+
+const CURRENCY = 'TON';
 
 function getIP(request: Request): string {
   return (
@@ -88,11 +91,61 @@ export async function POST(request: Request) {
       }, { status });
     }
 
+    // --- Immediate FaucetPay payout (same mechanism as shortlinks): the DB
+    // credit above is final; the reward is now pushed to the user's
+    // registered FaucetPay email. A failed payout never rolls the credit
+    // back — it is surfaced as a warning instead.
+    const reward = Number(result.reward ?? 0);
+    let txid: string | undefined;
+    let warning: string | undefined;
+
+    const apiKey = process.env.FAUCETPAY_API_KEY;
+    if (!apiKey) {
+      console.error('[PTC_VERIFY] FaucetPay API key not configured');
+      warning = 'FaucetPay not configured';
+    } else {
+      // The verify RPC doesn't return the address; resolve it from the view
+      // row so the payout reaches the user's FaucetPay account.
+      const { data: viewRow, error: viewError } = await supabase
+        .from('ptc_views')
+        .select('faucetpay_address')
+        .eq('token', token)
+        .single();
+
+      const payTo = viewRow?.faucetpay_address;
+      if (viewError || !payTo) {
+        console.error('[PTC_VERIFY] Could not resolve payout address:', viewError?.message);
+        warning = 'Payout address not found';
+      } else {
+        console.log('[PTC_VERIFY] Sending FaucetPay payout', {
+          to: payTo,
+          reward,
+          satoshi: toSatoshi(reward),
+        });
+        const payout = await sendFaucetPayPayout({
+          apiKey,
+          to: payTo,
+          amountSatoshi: toSatoshi(reward),
+          currency: CURRENCY,
+        });
+
+        if (payout.ok) {
+          txid = payout.txid;
+          console.log('[PTC_VERIFY] Payout successful', { txid: payout.txid });
+        } else {
+          warning = `Payment pending: ${payout.error}`;
+          console.error('[PTC_VERIFY] Payout failed after credit:', payout.error);
+        }
+      }
+    }
+
     return NextResponse.json({
       success: true,
       reward: result.reward,
       balance: result.balance,
       daily_claims: result.daily_claims,
+      txid,
+      warning,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Internal server error';

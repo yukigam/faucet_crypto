@@ -1,10 +1,11 @@
 import { NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
+import { sendFaucetPayPayout, toSatoshi } from '@/lib/faucetpay';
 
-const FAUCETPAY_API = 'https://faucetpay.io/api/v1/send';
 const TURNSTILE_VERIFY = 'https://challenges.cloudflare.com/turnstile/v0/siteverify';
-const SATOSHI_AMOUNT = '200';
+// Must match the per-claim reward hardcoded inside the faucet_claim() SQL function
 const DECIMAL_AMOUNT = '0.000002';
+const SATOSHI_AMOUNT = toSatoshi(Number(DECIMAL_AMOUNT));
 const CURRENCY = 'TON';
 
 function getIP(request: Request): string {
@@ -86,32 +87,7 @@ export async function POST(request: Request) {
       }, { status: 429 });
     }
 
-    // --- Step 1: Server-side Ad Verification ---
-    // Claims are rejected with 403 unless the user completed a ShrinkMe
-    // shortlink today (ad interaction verified server-side, not client-side).
-    const { data: adVerified, error: adError } = await supabase.rpc('check_ad_verified', {
-      p_address: address,
-      p_now: now,
-    });
-
-    if (adError || adVerified !== true) {
-      console.warn('[CLAIM] Ad verification failed', { ip, address });
-      await logClaim(supabase, {
-        faucetpay_address: address,
-        ip_address: ip,
-        user_agent: userAgent,
-        turnstile_passed: false,
-        success: false,
-        error_type: 'ad_verification_required',
-      });
-      return NextResponse.json({
-        success: false,
-        error: 'Ad verification required: complete a shortlink first to unlock faucet claims.',
-        code: 'ad_verification_required',
-      }, { status: 403 });
-    }
-
-    // --- Step 2: Verify Turnstile captcha ---
+    // --- Step 1: Verify Turnstile captcha ---
     if (!turnstileToken || typeof turnstileToken !== 'string') {
       await logClaim(supabase, {
         faucetpay_address: address,
@@ -153,7 +129,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'FaucetPay API key not configured' }, { status: 500 });
     }
 
-    // --- Step 3: Record claim in DB (handles cooldown, daily limit, balance) ---
+    // --- Step 2: Record claim in DB (handles cooldown, daily limit, balance) ---
     const { data: dbResult, error: dbError } = await supabase.rpc('faucet_claim', {
       p_address: address,
       p_now: now,
@@ -185,21 +161,6 @@ export async function POST(request: Request) {
     };
 
     if (!result.success) {
-      if (result.error === 'ad_verification_required') {
-        await logClaim(supabase, {
-          faucetpay_address: address,
-          ip_address: ip,
-          user_agent: userAgent,
-          turnstile_passed: true,
-          success: false,
-          error_type: 'ad_verification_required',
-        });
-        return NextResponse.json({
-          success: false,
-          error: result.message || 'Ad verification required: complete a shortlink first.',
-          code: 'ad_verification_required',
-        }, { status: 403 });
-      }
       if (result.error === 'daily_limit') {
         await logClaim(supabase, {
           faucetpay_address: address,
@@ -240,33 +201,21 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: result.message || 'Claim failed' }, { status: 500 });
     }
 
-    // --- Step 4: Send payment via FaucetPay ---
-    const fpForm = new URLSearchParams();
-    fpForm.append('api_key', apiKey);
-    fpForm.append('to', address);
-    fpForm.append('amount', SATOSHI_AMOUNT);
-    fpForm.append('currency', CURRENCY);
-
+    // --- Step 3: Send payment via FaucetPay ---
     console.log('[CLAIM] Sending to FaucetPay:', {
       currency: CURRENCY,
       amount: `${DECIMAL_AMOUNT} TON -> ${SATOSHI_AMOUNT} satoshi`,
       to: address,
     });
 
-    const fpRes = await fetch(FAUCETPAY_API, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: fpForm.toString(),
+    const payout = await sendFaucetPayPayout({
+      apiKey,
+      to: address,
+      amountSatoshi: SATOSHI_AMOUNT,
+      currency: CURRENCY,
     });
 
-    const rawText = await fpRes.text();
-    console.log('[CLAIM] FaucetPay raw response:', rawText);
-
-    let fpData: Record<string, unknown>;
-    try {
-      fpData = JSON.parse(rawText);
-    } catch {
-      console.error('[CLAIM] FaucetPay non-JSON after DB record:', rawText);
+    if (payout.ok) {
       await logClaim(supabase, {
         faucetpay_address: address,
         ip_address: ip,
@@ -275,48 +224,24 @@ export async function POST(request: Request) {
         success: true,
         error_type: null,
       });
+
       return NextResponse.json({
         success: true,
         balance: result.balance,
         amount: DECIMAL_AMOUNT,
         currency: CURRENCY,
+        txid: payout.txid,
         daily_claims: result.daily_claims,
         daily_limit: result.daily_limit,
         bonus_claims: result.bonus_claims,
         effective_limit: result.effective_limit,
-        warning: 'Claim recorded but payment may be delayed',
         message: `Successfully claimed ${DECIMAL_AMOUNT} ${CURRENCY}!`,
       });
     }
 
-    if (fpData.status !== 200) {
-      const exactError =
-        (fpData as any).html_entity_decode ||
-        (fpData as any).message ||
-        JSON.stringify(fpData);
-      console.error('[CLAIM] FaucetPay error after DB record:', fpData);
-      await logClaim(supabase, {
-        faucetpay_address: address,
-        ip_address: ip,
-        user_agent: userAgent,
-        turnstile_passed: true,
-        success: true,
-        error_type: null,
-      });
-      return NextResponse.json({
-        success: true,
-        balance: result.balance,
-        amount: DECIMAL_AMOUNT,
-        currency: CURRENCY,
-        daily_claims: result.daily_claims,
-        daily_limit: result.daily_limit,
-        bonus_claims: result.bonus_claims,
-        effective_limit: result.effective_limit,
-        warning: `Payment pending: ${exactError}`,
-        message: `Successfully claimed ${DECIMAL_AMOUNT} ${CURRENCY}!`,
-      });
-    }
-
+    // Payout failed but the claim is recorded — surface the exact reason
+    // instead of silently swallowing it
+    console.error('[CLAIM] FaucetPay error after DB record:', payout.error);
     await logClaim(supabase, {
       faucetpay_address: address,
       ip_address: ip,
@@ -331,11 +256,11 @@ export async function POST(request: Request) {
       balance: result.balance,
       amount: DECIMAL_AMOUNT,
       currency: CURRENCY,
-      txid: fpData.id,
       daily_claims: result.daily_claims,
       daily_limit: result.daily_limit,
       bonus_claims: result.bonus_claims,
       effective_limit: result.effective_limit,
+      warning: `Payment pending: ${payout.error}`,
       message: `Successfully claimed ${DECIMAL_AMOUNT} ${CURRENCY}!`,
     });
   } catch (err) {

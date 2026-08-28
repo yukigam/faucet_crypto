@@ -34,7 +34,7 @@ function ViewAd() {
   const [adInfo, setAdInfo] = useState<AdStatus | null>(null);
   const [secondsLeft, setSecondsLeft] = useState<number | null>(null);
   const [errorText, setErrorText] = useState('');
-  const [result, setResult] = useState<{ reward: number; balance: number } | null>(null);
+  const [result, setResult] = useState<{ reward: number; balance: number; txid?: string; warning?: string } | null>(null);
   const startedAtRef = useRef<number | null>(null);
   const verifyFiredRef = useRef(false);
 
@@ -49,7 +49,7 @@ function ViewAd() {
       const data = await res.json();
 
       if (res.ok && data.success) {
-        setResult({ reward: data.reward, balance: data.balance });
+        setResult({ reward: data.reward, balance: data.balance, txid: data.txid, warning: data.warning });
         setPhase('success');
       } else if (data.code === 'already_claimed') {
         setErrorText('This ad view was already credited.');
@@ -207,6 +207,14 @@ function ViewAd() {
                 +{fmtAmount(result.reward)} {CURRENCY} credited!
               </p>
               <p className="text-sm text-gray-600">New balance: {fmtAmount(result.balance)} {CURRENCY}</p>
+              {result.txid && (
+                <p className="text-xs text-green-600 font-medium">
+                  ✓ Paid to your FaucetPay account (tx: {result.txid})
+                </p>
+              )}
+              {result.warning && (
+                <p className="text-xs text-amber-600 font-medium">⚠️ {result.warning}</p>
+              )}
               <AdSlot slot="ptcView" />
               <Link
                 href="/ptc"
