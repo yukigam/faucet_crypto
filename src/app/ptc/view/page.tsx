@@ -45,6 +45,7 @@ function ViewAd() {
   const verifyFiredRef = useRef(false);
   const bannerClickInFlightRef = useRef(false);
   const durationRef = useRef(30);
+  const activeSecondsRef = useRef(0);
 
   const duration = adInfo?.duration_seconds ?? 0;
 
@@ -94,6 +95,7 @@ function ViewAd() {
         verifyFiredRef.current = false;
         resetCompletion();
         const elapsed = typeof data.elapsed === 'number' ? data.elapsed : 0;
+        activeSecondsRef.current = elapsed;
         setActiveSeconds(elapsed);
         syncRemaining(elapsed);
         setPhase('watching');
@@ -128,8 +130,13 @@ function ViewAd() {
       const data = await res.json();
       if (res.ok && data.success) {
         setBannerClicked(true);
-        setActiveSeconds(0);
-        syncRemaining(0);
+        // Keep the seconds already accrued this session (synced from the
+        // server on load) instead of resetting the countdown. If the watch
+        // had already reached full duration before a reload, credit the
+        // reward right away — no further counting is needed.
+        if (durationRef.current - activeSecondsRef.current <= 0) {
+          onWatchCompleteRef.current();
+        }
       } else {
         setErrorText(data.error || 'Failed to register banner click.');
         setPhase('error');
@@ -141,7 +148,7 @@ function ViewAd() {
       setRegisteringClick(false);
       bannerClickInFlightRef.current = false;
     }
-  }, [bannerClicked, syncRemaining]);
+  }, [bannerClicked]);
 
   const handleBannerDetected = useCallback(() => {
     if (!token || bannerClicked || phase !== 'watching') return;
@@ -178,13 +185,15 @@ function ViewAd() {
         setAdInfo(data);
         startedAtRef.current = Date.now();
         durationRef.current = adDuration;
+        activeSecondsRef.current = watched;
         setActiveSeconds(watched);
 
-        if (data.watch_started_at) {
-          setBannerClicked(true);
-        } else {
-          setBannerClicked(false);
-        }
+        // Every fresh page load — including a reload — starts paused behind
+        // the banner gate. Never resume counting just because the server
+        // already has watch_started_at from before the reload; ptc_banner_click
+        // is idempotent, so re-clicking keeps the original watch start time
+        // while the accrued active_watch_seconds are preserved as progress.
+        setBannerClicked(false);
         setPhase('watching');
       } catch {
         if (!cancelled) {
@@ -207,14 +216,27 @@ function ViewAd() {
     return () => clearTimeout(id);
   }, [phase]);
 
-  const statusLabel =
+  const statusChip =
     phase === 'verifying'
-      ? 'Crediting reward…'
-      : pauseReason === 'banner'
-        ? 'Click the banner to start'
-        : pauseReason === 'focus'
-          ? 'Timer paused — return to this tab'
-          : 'Keep this page focused';
+      ? '✓ Verifying'
+      : registeringClick
+        ? '⏳ Registering click…'
+        : pauseReason === 'banner'
+          ? '⏸ Paused — waiting for your click'
+          : pauseReason === 'focus'
+            ? '⏸ Paused — you left this page'
+            : '▶ Watching';
+
+  const statusHint =
+    phase === 'verifying'
+      ? 'Crediting your reward…'
+      : registeringClick
+        ? 'Registering your banner click…'
+        : pauseReason === 'banner'
+          ? '👆 Click the Adsterra banner below — the timer only counts after your click.'
+          : pauseReason === 'focus'
+            ? 'Switch back to this tab to keep the timer running.'
+            : 'Keep this tab open and visible until the timer reaches 0.';
 
   return (
     <main className="min-h-screen flex flex-col items-center p-6 gap-6 md:pl-64">
@@ -231,6 +253,32 @@ function ViewAd() {
           {(phase === 'watching' || phase === 'verifying') && adInfo && (
             <>
               <p className="text-sm text-gray-700 text-center font-medium">{adInfo.title}</p>
+
+              {/* Unmissable step-by-step instructions */}
+              <div className="rounded-xl bg-gray-900 px-4 py-3 shadow-inner">
+                <p className="text-center text-[11px] font-extrabold uppercase tracking-widest text-amber-400">
+                  📢 How to earn — 3 steps
+                </p>
+                <ul className="mt-2 space-y-1.5 text-[13px] font-bold leading-snug text-white">
+                  <li className={`flex items-center gap-2 ${bannerClicked ? 'text-emerald-400' : 'animate-pulse text-amber-300'}`}>
+                    <span aria-hidden>{bannerClicked ? '✅' : '👆'}</span>
+                    <span>Step 1: Click the Adsterra banner below</span>
+                    {bannerClicked && (
+                      <span className="ml-auto rounded bg-emerald-500 px-1.5 py-0.5 text-[9px] font-extrabold uppercase text-white">
+                        Done
+                      </span>
+                    )}
+                  </li>
+                  <li className={`flex items-center gap-2 ${!isPaused ? 'text-cyan-300' : 'text-gray-400'}`}>
+                    <span aria-hidden>{!isPaused ? '👀' : '⏸️'}</span>
+                    <span>Step 2: Stay on this page until the timer finishes</span>
+                  </li>
+                  <li className="flex items-center gap-2 text-emerald-400">
+                    <span aria-hidden>💰</span>
+                    <span>→ Earn reward</span>
+                  </li>
+                </ul>
+              </div>
 
               <iframe
                 title={adInfo.title || 'Advertisement'}
@@ -262,22 +310,45 @@ function ViewAd() {
                 </p>
               </div>
 
-              <div className="flex items-center justify-between px-2">
-                <span className="text-sm text-gray-600">{statusLabel}</span>
-                <span className={`font-mono font-bold text-2xl ${
-                  isPaused
-                    ? 'text-amber-600'
-                    : secondsLeft === 0
-                      ? 'text-green-600'
-                      : 'text-gray-900'
+              {/* Live status panel — big, unmissable paused/active feedback */}
+              <div className={`rounded-xl border-2 px-4 py-3 text-center ${
+                phase === 'verifying'
+                  ? 'border-emerald-300 bg-emerald-50'
+                  : pauseReason === 'banner'
+                    ? 'border-amber-300 bg-amber-50'
+                    : pauseReason === 'focus'
+                      ? 'border-blue-300 bg-blue-50'
+                      : 'border-emerald-300 bg-emerald-50'
+              }`}>
+                <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] font-extrabold uppercase tracking-widest text-white ${
+                  phase === 'verifying'
+                    ? 'bg-emerald-500'
+                    : pauseReason === 'banner'
+                      ? 'bg-amber-500'
+                      : pauseReason === 'focus'
+                        ? 'bg-blue-500'
+                        : 'animate-pulse bg-emerald-500'
+                }`}>
+                  {statusChip}
+                </span>
+                <p className={`mt-1.5 font-mono text-4xl font-extrabold ${
+                  phase === 'verifying'
+                    ? 'text-emerald-600'
+                    : isPaused
+                      ? 'text-amber-600'
+                      : secondsLeft === 0
+                        ? 'text-emerald-600'
+                        : 'text-gray-900'
                 }`}>
                   {phase === 'verifying'
                     ? '✓'
                     : isPaused
                       ? '⏸'
                       : `${secondsLeft}s`}
-                </span>
+                </p>
+                <p className="mt-1 text-xs font-semibold text-gray-700">{statusHint}</p>
               </div>
+
               <div className="h-2 w-full bg-blue-100 rounded-full overflow-hidden">
                 <div
                   className={`h-full rounded-full transition-all duration-1000 ease-linear ${
@@ -285,23 +356,9 @@ function ViewAd() {
                       ? 'bg-amber-400'
                       : 'bg-gradient-to-r from-cyan-500 to-green-500'
                   }`}
-                  style={{ width: isPaused && pauseReason === 'banner' ? '0%' : `${progress}%` }}
+                  style={{ width: `${progress}%` }}
                 />
               </div>
-
-              {pauseReason === 'banner' && (
-                <div className="border rounded-lg px-4 py-3 text-sm font-medium bg-amber-50 border-amber-200 text-amber-800">
-                  {registeringClick
-                    ? 'Registering banner click…'
-                    : 'Click the Adsterra banner below to start the viewing timer. The full watch duration begins after your click.'}
-                </div>
-              )}
-
-              {pauseReason === 'focus' && (
-                <div className="border rounded-lg px-4 py-3 text-sm font-medium bg-blue-50 border-blue-200 text-blue-800">
-                  Timer paused while you are away. Switch back to this tab and keep it focused to continue watching.
-                </div>
-              )}
 
               <AdSlot slot="ptcView" trackPtcBanner />
             </>

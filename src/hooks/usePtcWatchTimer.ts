@@ -20,9 +20,11 @@ type UsePtcWatchTimerOptions = {
 };
 
 /**
- * PTC watch countdown that only advances while the tab is visible and focused.
- * Each active second is recorded server-side via /api/ptc/watch-tick so rewards
- * cannot complete in the background.
+ * PTC watch countdown that only advances after the Adsterra banner has been
+ * clicked during the CURRENT page load, and only while the tab is visible and
+ * focused. Each active second is recorded server-side via /api/ptc/watch-tick
+ * so rewards cannot complete in the background or resume after a reload
+ * without re-clicking the banner.
  */
 export function usePtcWatchTimer({
   token,
@@ -115,10 +117,10 @@ export function usePtcWatchTimer({
     };
   }, [ticking, token]);
 
+  // Progress reflects seconds already accrued (kept across reloads), even
+  // while paused behind the banner gate.
   const progress =
-    bannerClicked && duration > 0
-      ? ((duration - secondsLeft) / duration) * 100
-      : 0;
+    duration > 0 ? ((duration - secondsLeft) / duration) * 100 : 0;
 
   return {
     secondsLeft,
