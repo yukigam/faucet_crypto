@@ -19,10 +19,11 @@ import {
   RefreshCw,
   Play,
   MousePointerClick,
+  Timer,
+  ExternalLink,
 } from 'lucide-react';
 
 const CURRENCY = 'TON';
-// Server rejects verification 10 minutes after the session starts
 const VERIFY_GRACE_MS = 10 * 60 * 1000;
 
 type Phase = 'loading' | 'watching' | 'captcha' | 'verifying' | 'success' | 'error';
@@ -83,7 +84,6 @@ function ViewAd() {
   const [phase, setPhase] = useState<Phase>('loading');
   const [adInfo, setAdInfo] = useState<AdStatus | null>(null);
   const [bannerClicked, setBannerClicked] = useState(false);
-  const [activeSeconds, setActiveSeconds] = useState(0);
   const [registeringClick, setRegisteringClick] = useState(false);
   const [errorText, setErrorText] = useState('');
   const [tabActive, setTabActive] = useState(true);
@@ -93,6 +93,7 @@ function ViewAd() {
     txid?: string;
     warning?: string;
   } | null>(null);
+  const [activeSeconds, setActiveSeconds] = useState(0);
   const startedAtRef = useRef<number | null>(null);
   const verifyFiredRef = useRef(false);
   const bannerClickInFlightRef = useRef(false);
@@ -224,7 +225,7 @@ function ViewAd() {
   useEffect(() => {
     if (phase !== 'watching') return;
     const handle = () => {
-      const active = !document.hidden && document.hasFocus();
+      const active = document.visibilityState === 'visible' && document.hasFocus();
       setTabActive(active);
     };
     document.addEventListener('visibilitychange', handle);
@@ -317,32 +318,28 @@ function ViewAd() {
     setCaptcha(generateCaptcha());
   }, []);
 
+  const openTargetUrl = useCallback(() => {
+    if (!adInfo?.target_url) return;
+    window.open(adInfo.target_url, '_blank', 'noopener,noreferrer');
+  }, [adInfo]);
+
   const statusChip = useMemo(() => {
     if (phase === 'verifying') return '✓ Verifying';
     if (registeringClick) return '⏳ Registering click…';
-    if (pauseReason === 'banner') return '⏸ Paused — waiting for your click';
-    if (pauseReason === 'focus') return '⏸ Paused — you left this page';
+    if (pauseReason === 'banner') return '⏸ Waiting for click';
+    if (pauseReason === 'focus') return '⏸ Paused — stay on tab';
     return '▶ Watching';
-  }, [phase, registeringClick, pauseReason]);
-
-  const statusHint = useMemo(() => {
-    if (phase === 'verifying') return 'Crediting your reward…';
-    if (registeringClick) return 'Registering your banner click…';
-    if (pauseReason === 'banner')
-      return '👆 Click the Adsterra banner below — the timer only counts after your click.';
-    if (pauseReason === 'focus') return 'Switch back to this tab to keep the timer running.';
-    return 'Keep this tab open and visible until the timer reaches 0.';
   }, [phase, registeringClick, pauseReason]);
 
   return (
     <main className="min-h-screen flex flex-col items-center p-6 gap-6 md:pl-64">
       <SidebarNav />
 
-      <div className="w-full max-w-md mx-auto overflow-hidden p-6 rounded-2xl bg-gradient-to-br from-cyan-400 via-blue-400 to-indigo-500 shadow-xl">
+      <div className="w-full max-w-lg mx-auto overflow-hidden p-6 rounded-2xl bg-gradient-to-br from-cyan-400 via-blue-400 to-indigo-500 shadow-xl">
         <div className="bg-white/90 backdrop-blur-sm rounded-xl p-6 space-y-4">
           <div className="flex items-center justify-between">
             <h1 className="text-lg font-bold text-center flex-1 text-gray-900">
-              📺 Watching Ad
+              📺 Paid-to-Click View
             </h1>
             <Link
               href="/ptc"
@@ -355,7 +352,7 @@ function ViewAd() {
           </div>
 
           {phase === 'loading' && (
-            <div className="flex flex-col items-center py-6 text-gray-500">
+            <div className="flex flex-col items-center py-10 text-gray-500">
               <Loader2 className="w-8 h-8 text-cyan-500 animate-spin mb-3" />
               <p className="text-sm animate-pulse">Loading ad…</p>
             </div>
@@ -363,39 +360,41 @@ function ViewAd() {
 
           {(phase === 'watching' || phase === 'verifying') && adInfo && (
             <>
-              <p className="text-sm text-gray-700 text-center font-bold">{adInfo.title}</p>
+              <p className="text-sm font-bold text-gray-900 text-center leading-tight">
+                {adInfo.title}
+              </p>
 
-              {pauseReason === 'focus' && (
+              {phase === 'watching' && pauseReason === 'focus' && (
                 <div className="rounded-xl border-2 border-amber-400/80 bg-amber-500/10 px-4 py-2.5">
                   <div className="flex items-center justify-center gap-2 text-amber-800">
                     <EyeOff className="w-4 h-4" strokeWidth={2.25} />
-                    <p className="text-sm font-extrabold">
+                    <p className="text-sm font-extrabold text-center">
                       Timer paused! Please stay on this tab — switch back to resume.
                     </p>
                   </div>
                 </div>
               )}
 
-              {pauseReason === 'banner' && (
+              {phase === 'watching' && pauseReason === 'banner' && (
                 <div className="rounded-xl border-2 border-violet-400/70 bg-violet-500/10 px-4 py-2.5">
                   <div className="flex items-center justify-center gap-2 text-violet-900">
                     <Play
                       className="w-4 h-4 text-violet-600 animate-pulse"
                       strokeWidth={2.25}
                     />
-                    <p className="text-sm font-extrabold">
+                    <p className="text-sm font-extrabold text-center">
                       👆 Click the Adsterra banner below to start the countdown timer
                     </p>
                   </div>
                 </div>
               )}
 
-              {!isPaused && tabActive && phase === 'watching' && (
+              {phase === 'watching' && !isPaused && tabActive && (
                 <div className="rounded-xl border-2 border-emerald-400/60 bg-emerald-500/10 px-4 py-2.5">
                   <div className="flex items-center justify-center gap-2 text-emerald-800">
                     <Eye className="w-4 h-4 text-emerald-700" strokeWidth={2.25} />
                     <p className="text-xs font-extrabold">
-                      Watching now — timer is running · Reward:{' '}
+                      Watching now · Reward:{' '}
                       <span className="text-emerald-700">
                         {fmtAmount(adInfo.reward ?? 0)} {CURRENCY}
                       </span>
@@ -404,7 +403,139 @@ function ViewAd() {
                 </div>
               )}
 
-              <div className="rounded-xl bg-gray-900 px-4 py-3 shadow-inner">
+              {/* --- Banner + Timer side-by-side --- */}
+              <div className="rounded-2xl border-2 border-gray-200 bg-white shadow-inner overflow-hidden">
+                <div
+                  className={`flex items-stretch transition-colors duration-300 ${
+                    !bannerClicked
+                      ? 'bg-violet-500/5'
+                      : isPaused
+                        ? 'bg-amber-500/5'
+                        : 'bg-emerald-500/5'
+                  }`}
+                >
+                  {/* Left: Banner ad (centered, prominent) */}
+                  <div className="flex-1 p-4 sm:p-5 flex flex-col items-center justify-center gap-2 border-r border-gray-200">
+                    <div className="flex w-full items-center justify-between">
+                      <p
+                        className={`text-[11px] font-extrabold uppercase tracking-widest ${
+                          !bannerClicked
+                            ? 'text-violet-700 animate-pulse'
+                            : 'text-emerald-700'
+                        }`}
+                      >
+                        {!bannerClicked ? '▼ Click ad ▼' : '✓ Viewing ad'}
+                      </p>
+                      <span
+                        className={`rounded-full px-2.5 py-0.5 text-[10px] font-extrabold uppercase tracking-wider ${
+                          !bannerClicked
+                            ? 'bg-violet-500 text-white animate-bounce'
+                            : 'bg-emerald-500 text-white'
+                        }`}
+                      >
+                        {!bannerClicked ? 'START HERE' : 'DONE'}
+                      </span>
+                    </div>
+                    <div className="w-full flex items-center justify-center">
+                      <div className="w-full max-w-[260px]">
+                        <AdSlot slot="ptcView" trackPtcBanner />
+                      </div>
+                    </div>
+                    {adInfo.target_url && (
+                      <button
+                        type="button"
+                        onClick={openTargetUrl}
+                        className="mt-1 inline-flex items-center gap-1.5 text-[11px] font-bold text-cyan-700 hover:text-cyan-900 hover:underline transition-colors"
+                      >
+                        <ExternalLink className="w-3 h-3" strokeWidth={2.25} />
+                        Open advertiser link in a new tab
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Right: Live countdown timer, directly beside the banner */}
+                  <div className="w-[140px] shrink-0 flex flex-col items-center justify-center gap-2 bg-gray-950 p-4">
+                    <span
+                      className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-extrabold uppercase tracking-widest text-white ${
+                        phase === 'verifying'
+                          ? 'bg-emerald-500'
+                          : registeringClick
+                            ? 'bg-cyan-500'
+                            : pauseReason === 'banner'
+                              ? 'bg-violet-500 animate-pulse'
+                              : pauseReason === 'focus'
+                                ? 'bg-amber-500'
+                                : 'bg-emerald-500 animate-pulse'
+                      }`}
+                    >
+                      {phase === 'verifying' ? (
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                      ) : pauseReason === 'banner' ? (
+                        <MousePointerClick className="w-3 h-3" />
+                      ) : pauseReason === 'focus' ? (
+                        <EyeOff className="w-3 h-3" />
+                      ) : (
+                        <Timer className="w-3 h-3" />
+                      )}
+                      {statusChip}
+                    </span>
+                    <div
+                      className={`font-mono text-5xl font-black tabular-nums tracking-tight ${
+                        phase === 'verifying'
+                          ? 'text-emerald-400'
+                          : isPaused
+                            ? 'text-amber-400'
+                            : secondsLeft <= 5
+                              ? 'text-rose-400 animate-pulse'
+                              : 'text-white'
+                      }`}
+                    >
+                      {phase === 'verifying'
+                        ? '✓'
+                        : isPaused
+                          ? '⏸'
+                          : `${secondsLeft}`}
+                      {phase !== 'verifying' && !isPaused && (
+                        <span className="text-xl text-gray-500 ml-0.5">s</span>
+                      )}
+                    </div>
+                    <p className="text-[11px] font-bold text-center leading-tight text-gray-300">
+                      {pauseReason === 'banner'
+                        ? 'Click banner first'
+                        : pauseReason === 'focus'
+                          ? 'Come back to this tab'
+                          : 'Keep watching'}
+                    </p>
+                    <div className="h-2 w-full bg-gray-800 rounded-full overflow-hidden">
+                      <div
+                        className={`h-full rounded-full transition-[width] duration-1000 ease-linear ${
+                          isPaused
+                            ? 'bg-amber-400'
+                            : 'bg-gradient-to-r from-cyan-400 to-emerald-400'
+                        }`}
+                        style={{ width: `${progress}%` }}
+                      />
+                    </div>
+                    <p className="text-[11px] font-extrabold tracking-wide text-gray-400">
+                      {progress.toFixed(0)}% complete
+                    </p>
+                  </div>
+                </div>
+
+                {/* Full-width progress under banner+timer */}
+                <div className="h-2 w-full bg-gray-100">
+                  <div
+                    className={`h-full transition-[width] duration-1000 ease-linear ${
+                      isPaused
+                        ? 'bg-amber-500'
+                        : 'bg-gradient-to-r from-cyan-500 to-emerald-500'
+                    }`}
+                    style={{ width: `${progress}%` }}
+                  />
+                </div>
+              </div>
+
+              <div className="rounded-xl bg-gray-900 px-4 py-3">
                 <p className="text-center text-[11px] font-extrabold uppercase tracking-widest text-amber-400">
                   📢 How to earn — 3 steps
                 </p>
@@ -417,7 +548,9 @@ function ViewAd() {
                     }`}
                   >
                     <span aria-hidden>{bannerClicked ? '✅' : '👆'}</span>
-                    <span>Step 1: Click the Adsterra banner below</span>
+                    <span>
+                      Step 1: Click the Adsterra banner (target opens in a new tab)
+                    </span>
                     {bannerClicked && (
                       <span className="ml-auto rounded bg-emerald-500 px-1.5 py-0.5 text-[9px] font-extrabold uppercase text-white">
                         Done
@@ -430,11 +563,13 @@ function ViewAd() {
                     }`}
                   >
                     <span aria-hidden>{!isPaused ? '👀' : '⏸️'}</span>
-                    <span>Step 2: Stay on this page until the timer finishes</span>
+                    <span>
+                      Step 2: Stay on THIS tab (timer only counts when visible here)
+                    </span>
                   </li>
                   <li className="flex items-center gap-2 text-emerald-400">
                     <span aria-hidden>💰</span>
-                    <span>Step 3: Solve captcha → Reward to FaucetPay</span>
+                    <span>Step 3: Solve captcha → Instant FaucetPay payout</span>
                   </li>
                 </ul>
               </div>
@@ -443,7 +578,7 @@ function ViewAd() {
                 <p className="text-sm text-cyan-800 font-bold">
                   Reward:{' '}
                   <span className="text-base font-extrabold text-emerald-700">
-                    {fmtAmount(adInfo.reward ?? 0)} {CURRENCY}
+                    +{fmtAmount(adInfo.reward ?? 0)} {CURRENCY}
                   </span>
                   {' · '}
                   Watch time:{' '}
@@ -451,123 +586,25 @@ function ViewAd() {
                 </p>
               </div>
 
-              <div
-                className={`rounded-2xl border-2 p-4 sm:p-5 transition-all duration-300 ${
-                  !bannerClicked
-                    ? 'border-violet-500/70 bg-violet-500/5 ring-4 ring-violet-500/20 shadow-[0_0_40px_-10px_rgba(139,92,246,0.5)]'
-                    : 'border-emerald-500/50 bg-emerald-500/5'
-                }`}
-              >
-                <div className="flex items-center justify-between mb-3">
-                  <p
-                    className={`text-[11px] font-extrabold uppercase tracking-widest ${
-                      !bannerClicked
-                        ? 'text-violet-700 animate-pulse'
-                        : 'text-emerald-700'
-                    }`}
-                  >
-                    {!bannerClicked ? '▼ Click this banner ▼' : '✓ Banner viewed'}
-                  </p>
-                  <span
-                    className={`rounded-full px-2.5 py-0.5 text-[10px] font-extrabold uppercase tracking-wider ${
-                      !bannerClicked
-                        ? 'bg-violet-500 text-white animate-bounce'
-                        : 'bg-emerald-500 text-white'
-                    }`}
-                  >
-                    {!bannerClicked ? 'START HERE' : 'DONE'}
-                  </span>
-                </div>
-                <div className="flex items-center justify-center w-full">
-                  <AdSlot slot="ptcView" trackPtcBanner className="w-full max-w-[300px]" />
-                </div>
-              </div>
-
-              <div
-                className={`rounded-xl border-2 px-4 py-3 text-center transition-colors ${
-                  phase === 'verifying'
-                    ? 'border-emerald-300 bg-emerald-50'
-                    : bannerClicked
-                      ? isPaused
-                        ? 'border-amber-300 bg-amber-50'
-                        : 'border-emerald-300 bg-emerald-50'
-                      : 'border-violet-300 bg-violet-50'
-                }`}
-              >
-                <span
-                  className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] font-extrabold uppercase tracking-widest text-white ${
-                    phase === 'verifying'
-                      ? 'bg-emerald-500'
-                      : registeringClick
-                        ? 'bg-cyan-500'
-                        : pauseReason === 'banner'
-                          ? 'bg-violet-500 animate-pulse'
-                          : pauseReason === 'focus'
-                            ? 'bg-amber-500'
-                            : 'animate-pulse bg-emerald-500'
-                  }`}
-                >
-                  {phase === 'verifying' ? (
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  ) : pauseReason === 'banner' ? (
-                    <MousePointerClick className="w-3.5 h-3.5" />
-                  ) : pauseReason === 'focus' ? (
-                    <EyeOff className="w-3.5 h-3.5" />
-                  ) : (
-                    <Eye className="w-3.5 h-3.5" />
-                  )}
-                  {statusChip}
-                </span>
-                <p
-                  className={`mt-1.5 font-mono text-4xl font-extrabold ${
-                    phase === 'verifying'
-                      ? 'text-emerald-600'
-                      : isPaused
-                        ? 'text-amber-600'
-                        : secondsLeft === 0
-                          ? 'text-emerald-600'
-                          : 'text-gray-900'
-                  }`}
-                >
-                  {phase === 'verifying'
-                    ? '✓'
-                    : isPaused
-                      ? '⏸'
-                      : `${secondsLeft}s`}
-                </p>
-                <p className="mt-1 text-xs font-semibold text-gray-700">{statusHint}</p>
-              </div>
-
-              <div className="h-2.5 w-full bg-blue-100 rounded-full overflow-hidden">
-                <div
-                  className={`h-full rounded-full transition-all duration-1000 ease-linear ${
-                    isPaused
-                      ? 'bg-amber-400'
-                      : 'bg-gradient-to-r from-cyan-500 to-green-500'
-                  }`}
-                  style={{ width: `${progress}%` }}
-                />
-              </div>
-
-              <AdSlot slot="ptcView" />
+              <AdSlot slot="ptcView" className="w-full max-w-md mx-auto" />
             </>
           )}
 
           {phase === 'captcha' && captcha && (
-            <div className="space-y-5 text-center">
+            <div className="space-y-5 text-center py-2">
               <div className="mx-auto w-14 h-14 rounded-2xl bg-cyan-500/15 border border-cyan-500/40 flex items-center justify-center">
                 <Shield className="w-7 h-7 text-cyan-600" strokeWidth={2} />
               </div>
               <div>
                 <h3 className="text-lg font-extrabold text-gray-900">
-                  Verify you are human
+                  Timer complete — verify to claim
                 </h3>
                 <p className="text-sm text-gray-500 mt-1">
-                  Solve the quick math challenge to claim your reward instantly.
+                  Solve the quick math challenge — reward sent right after.
                 </p>
               </div>
-              <div className="rounded-xl border-2 border-gray-200 bg-gray-50 px-5 py-4">
-                <p className="font-mono text-3xl font-extrabold tracking-wider text-gray-900">
+              <div className="rounded-xl border-2 border-gray-200 bg-gray-50 px-5 py-5">
+                <p className="font-mono text-4xl font-black tracking-wider text-gray-900">
                   {captcha.a} + {captcha.b} = ?
                 </p>
               </div>
@@ -577,7 +614,7 @@ function ViewAd() {
                     key={opt}
                     type="button"
                     onClick={() => handleCaptchaSelect(opt)}
-                    className="rounded-lg border-2 border-gray-300 bg-white hover:bg-cyan-500 hover:border-cyan-400 hover:text-white px-2 py-3 font-mono text-lg font-bold text-gray-800 transition-colors"
+                    className="rounded-lg border-2 border-gray-300 bg-white hover:bg-cyan-500 hover:border-cyan-400 hover:text-white px-2 py-3.5 font-mono text-xl font-black text-gray-800 transition-colors"
                   >
                     {opt}
                   </button>
@@ -602,7 +639,7 @@ function ViewAd() {
           )}
 
           {phase === 'success' && result && (
-            <div className="space-y-4 text-center">
+            <div className="space-y-4 text-center py-2">
               <div className="mx-auto w-16 h-16 rounded-full bg-emerald-500/15 border-2 border-emerald-500/60 flex items-center justify-center">
                 <CheckCircle2
                   className="w-9 h-9 text-emerald-600 animate-pulse"
@@ -654,7 +691,7 @@ function ViewAd() {
           )}
 
           {phase === 'verifying' && (
-            <div className="py-2 flex flex-col items-center gap-2">
+            <div className="py-6 flex flex-col items-center gap-2">
               <Loader2 className="w-8 h-8 text-emerald-500 animate-spin" />
               <p className="text-sm font-bold text-emerald-700">
                 Sending reward to FaucetPay…
@@ -663,7 +700,7 @@ function ViewAd() {
           )}
 
           {phase === 'error' && (
-            <div className="space-y-4 text-center">
+            <div className="space-y-4 text-center py-4">
               <div className="flex justify-center">
                 <AlertTriangle className="w-10 h-10 text-red-500" />
               </div>
@@ -680,10 +717,10 @@ function ViewAd() {
       </div>
 
       {phase === 'watching' && (
-        <AdSlot slot="ptcView" trackPtcBanner className="w-full max-w-md" />
+        <AdSlot slot="ptcView" trackPtcBanner className="w-full max-w-lg" />
       )}
       {phase !== 'watching' && (
-        <AdSlot slot="ptcView" className="w-full max-w-md" />
+        <AdSlot slot="ptcView" className="w-full max-w-lg" />
       )}
     </main>
   );
