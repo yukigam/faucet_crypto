@@ -13,7 +13,11 @@ import {
   Loader2,
   Shield,
   RefreshCw,
+  Play,
+  MousePointerClick,
 } from 'lucide-react';
+import AdSlot from '@/components/AdSlot';
+import { useBannerClickDetection } from '@/hooks/useBannerClickDetection';
 
 const STORAGE_KEY = 'faucetpay_address';
 const CURRENCY = 'TON';
@@ -78,9 +82,10 @@ export default function PtcViewByIdPage({
   const [adInfo, setAdInfo] = useState<AdInfo | null>(null);
   const [errorText, setErrorText] = useState('');
 
+  const [bannerClicked, setBannerClicked] = useState(false);
   const [secondsLeft, setSecondsLeft] = useState(10);
   const [isPaused, setIsPaused] = useState(false);
-  const [pauseReason, setPauseReason] = useState<'focus' | null>(null);
+  const [pauseReason, setPauseReason] = useState<'banner' | 'focus' | null>(null);
   const [tabActive, setTabActive] = useState(true);
 
   const [captcha, setCaptcha] = useState<CaptchaChallenge | null>(null);
@@ -108,6 +113,15 @@ export default function PtcViewByIdPage({
   const duration = adInfo?.duration_seconds ?? 10;
   const progress = duration > 0 ? ((duration - secondsLeft) / duration) * 100 : 0;
 
+  const handleBannerDetected = useCallback(() => {
+    if (phase !== 'watching') return;
+    setBannerClicked(true);
+    if (isPageActive()) {
+      setIsPaused(false);
+      setPauseReason(null);
+    }
+  }, [phase, isPageActive]);
+
   useEffect(() => {
     if (phase !== 'watching') return;
 
@@ -117,23 +131,31 @@ export default function PtcViewByIdPage({
       if (!active) {
         setIsPaused(true);
         setPauseReason('focus');
-      } else {
-        setIsPaused(false);
-        setPauseReason(null);
+        return;
       }
+      if (!bannerClicked) {
+        setIsPaused(true);
+        setPauseReason('banner');
+        return;
+      }
+      setIsPaused(false);
+      setPauseReason(null);
     };
 
     document.addEventListener('visibilitychange', handleActivity);
     window.addEventListener('blur', handleActivity);
     window.addEventListener('focus', handleActivity);
-    handleActivity();
+    const id = requestAnimationFrame(() => handleActivity());
 
     return () => {
+      cancelAnimationFrame(id);
       document.removeEventListener('visibilitychange', handleActivity);
       window.removeEventListener('blur', handleActivity);
       window.removeEventListener('focus', handleActivity);
     };
-  }, [phase, isPageActive]);
+  }, [phase, isPageActive, bannerClicked]);
+
+  useBannerClickDetection(phase === 'watching' && !bannerClicked, handleBannerDetected);
 
   const sendWatchTick = useCallback(async () => {
     if (!addressRef.current || !adInfo) return;
@@ -149,7 +171,7 @@ export default function PtcViewByIdPage({
   }, [adInfo]);
 
   useEffect(() => {
-    if (phase !== 'watching' || isPaused) {
+    if (phase !== 'watching' || isPaused || !bannerClicked) {
       if (intervalRef.current) {
         clearInterval(intervalRef.current);
         intervalRef.current = null;
@@ -182,7 +204,7 @@ export default function PtcViewByIdPage({
         intervalRef.current = null;
       }
     };
-  }, [phase, isPaused, sendWatchTick]);
+  }, [phase, isPaused, bannerClicked, sendWatchTick]);
 
   useEffect(() => {
     if (!id || !address) return;
@@ -205,6 +227,9 @@ export default function PtcViewByIdPage({
 
         setAdInfo(ad);
         setSecondsLeft(ad.duration_seconds ?? 10);
+        setBannerClicked(false);
+        setIsPaused(true);
+        setPauseReason('banner');
         setPhase('watching');
       } catch {
         if (!cancelled) {
@@ -293,7 +318,8 @@ export default function PtcViewByIdPage({
     if (phase === 'claiming') return 'Sending reward to FaucetPay…';
     if (phase === 'captcha') return 'Timer complete! Solve the captcha to claim.';
     if (phase === 'success') return 'Reward paid instantly to your FaucetPay account.';
-    if (isPaused && pauseReason === 'focus') return 'Timer paused! Please stay on this tab.';
+    if (isPaused && pauseReason === 'focus') return 'Timer paused! Please stay on this tab';
+    if (isPaused && pauseReason === 'banner') return 'Click the banner below to start the timer';
     if (isPaused) return 'Timer paused.';
     return 'Keep this tab visible — timer counts only while you watch.';
   }, [phase, isPaused, pauseReason]);
@@ -326,14 +352,21 @@ export default function PtcViewByIdPage({
                 className={`text-xs font-medium truncate ${
                   isPaused && pauseReason === 'focus'
                     ? 'text-amber-400'
-                    : phase === 'success'
-                      ? 'text-emerald-400'
-                      : 'text-gray-400'
+                    : isPaused && pauseReason === 'banner'
+                      ? 'text-violet-300'
+                      : phase === 'success'
+                        ? 'text-emerald-400'
+                        : 'text-gray-400'
                 }`}
               >
                 {isPaused && pauseReason === 'focus' ? (
                   <span className="inline-flex items-center gap-1">
                     <AlertTriangle className="w-3 h-3" />
+                    {statusMessage}
+                  </span>
+                ) : isPaused && pauseReason === 'banner' ? (
+                  <span className="inline-flex items-center gap-1">
+                    <MousePointerClick className="w-3 h-3" />
                     {statusMessage}
                   </span>
                 ) : phase === 'success' ? (
@@ -384,6 +417,17 @@ export default function PtcViewByIdPage({
         </div>
       )}
 
+      {isPaused && pauseReason === 'banner' && phase === 'watching' && (
+        <div className="w-full border-b border-violet-500/40 bg-violet-500/10">
+          <div className="max-w-4xl mx-auto px-4 py-2 flex items-center justify-center gap-2">
+            <Play className="w-4 h-4 text-violet-400 animate-pulse" strokeWidth={2.25} />
+            <p className="text-sm font-semibold text-violet-300">
+              👆 Click the Adsterra banner ad below to start the countdown timer
+            </p>
+          </div>
+        </div>
+      )}
+
       {!isPaused && tabActive && phase === 'watching' && (
         <div className="w-full border-b border-emerald-500/30 bg-emerald-500/5">
           <div className="max-w-4xl mx-auto px-4 py-2 flex items-center justify-center gap-2">
@@ -408,16 +452,127 @@ export default function PtcViewByIdPage({
           )}
 
           {phase === 'watching' && adInfo && (
-            <div className="rounded-2xl border border-gray-800 bg-gray-900 overflow-hidden">
-              <iframe
-                title={adInfo.title}
-                src={adInfo.target_url}
-                scrolling="auto"
-                sandbox="allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox"
-                referrerPolicy="no-referrer"
-                className="w-full bg-white"
-                style={{ minHeight: 'calc(100vh - 260px)', border: 'none' }}
-              />
+            <div className="space-y-4 max-w-2xl mx-auto">
+              <div className="rounded-2xl border border-gray-800 bg-gradient-to-br from-gray-900 to-gray-900/60 p-5 sm:p-8 shadow-2xl">
+                <div className="rounded-xl bg-gray-950/60 border border-gray-800 px-4 py-3 mb-5 space-y-1.5 text-center">
+                  <p className="text-[11px] font-extrabold uppercase tracking-widest text-amber-400">
+                    📢 How to earn — 3 steps
+                  </p>
+                  <ul className="space-y-1 text-[13px] font-bold leading-snug text-white">
+                    <li className={`flex items-center justify-center gap-2 ${bannerClicked ? 'text-emerald-400' : 'animate-pulse text-amber-300'}`}>
+                      <span aria-hidden>{bannerClicked ? '✅' : '👆'}</span>
+                      <span>Click the Adsterra banner below to start the timer</span>
+                    </li>
+                    <li className={`flex items-center justify-center gap-2 ${!isPaused && bannerClicked ? 'text-cyan-300' : 'text-gray-400'}`}>
+                      <span aria-hidden>{!isPaused && bannerClicked ? '👀' : '⏸️'}</span>
+                      <span>Stay on this page until the timer finishes</span>
+                    </li>
+                    <li className="flex items-center justify-center gap-2 text-emerald-400">
+                      <span aria-hidden>💰</span>
+                      <span>Solve the captcha → reward sent instantly to FaucetPay</span>
+                    </li>
+                  </ul>
+                </div>
+
+                <div className="rounded-xl bg-cyan-50/5 border border-cyan-500/20 px-5 py-3 mb-5 text-center">
+                  <p className="text-xs text-cyan-300 font-medium">
+                    Reward on completion:{' '}
+                    <span className="font-extrabold text-emerald-400 text-base">
+                      {fmtAmount(adInfo.reward)} {CURRENCY}
+                    </span>
+                    {' · '}
+                    Watch time:{' '}
+                    <span className="font-extrabold text-cyan-300">{duration}s</span>
+                  </p>
+                </div>
+
+                <div
+                  className={`rounded-2xl border-2 p-4 sm:p-6 transition-all duration-300 ${
+                    !bannerClicked
+                      ? 'border-violet-500/60 bg-violet-500/5 ring-4 ring-violet-500/20 shadow-[0_0_40px_-10px_rgba(139,92,246,0.5)]'
+                      : 'border-emerald-500/40 bg-emerald-500/5'
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-3">
+                    <p
+                      className={`text-[11px] font-extrabold uppercase tracking-widest ${
+                        !bannerClicked ? 'text-violet-400 animate-pulse' : 'text-emerald-400'
+                      }`}
+                    >
+                      {!bannerClicked ? '▼ Click this banner ▼' : '✓ Banner viewed'}
+                    </p>
+                    <span
+                      className={`rounded-full px-2.5 py-0.5 text-[10px] font-extrabold uppercase tracking-wider ${
+                        !bannerClicked
+                          ? 'bg-violet-500 text-white animate-bounce'
+                          : 'bg-emerald-500 text-white'
+                      }`}
+                    >
+                      {!bannerClicked ? 'START HERE' : 'DONE'}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-center w-full">
+                    <div className="w-full max-w-[300px]">
+                      <AdSlot slot="ptcView" trackPtcBanner />
+                    </div>
+                  </div>
+                </div>
+
+                <div
+                  className={`mt-5 rounded-xl border-2 px-5 py-4 text-center transition-colors ${
+                    bannerClicked
+                      ? isPaused
+                        ? 'border-amber-300 bg-amber-50/10'
+                        : 'border-emerald-300 bg-emerald-50/10'
+                      : 'border-violet-300 bg-violet-50/10'
+                  }`}
+                >
+                  <span
+                    className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] font-extrabold uppercase tracking-widest text-white ${
+                      bannerClicked
+                        ? isPaused
+                          ? 'bg-amber-500'
+                          : 'animate-pulse bg-emerald-500'
+                        : 'bg-violet-500 animate-pulse'
+                    }`}
+                  >
+                    {!bannerClicked ? (
+                      <>
+                        <Play className="w-3 h-3" />
+                        Waiting for click
+                      </>
+                    ) : isPaused ? (
+                      <>
+                        <EyeOff className="w-3 h-3" />
+                        Paused
+                      </>
+                    ) : (
+                      <>
+                        <Eye className="w-3 h-3" />
+                        Watching
+                      </>
+                    )}
+                  </span>
+                  <p
+                    className={`mt-1.5 font-mono text-4xl sm:text-5xl font-extrabold tabular-nums ${
+                      bannerClicked
+                        ? isPaused
+                          ? 'text-amber-400'
+                          : secondsLeft === 0
+                            ? 'text-emerald-400'
+                            : 'text-white'
+                        : 'text-violet-300'
+                    }`}
+                  >
+                    {bannerClicked ? (isPaused ? '⏸' : `${secondsLeft}s`) : `${duration}s`}
+                  </p>
+                  <p className="mt-1 text-xs font-semibold text-gray-400">{statusMessage}</p>
+                </div>
+              </div>
+
+              <div className="w-full max-w-md mx-auto">
+                <AdSlot slot="ptcView" />
+              </div>
             </div>
           )}
 
@@ -519,7 +674,7 @@ export default function PtcViewByIdPage({
               )}
 
               <p className="text-xs text-gray-500">
-                Closing this window in a moment…
+                Redirecting back to PTC ads in a moment…
               </p>
             </div>
           )}
