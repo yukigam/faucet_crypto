@@ -8,7 +8,7 @@ export default function ReferralDashboard({ address }: { address: string }) {
 
   useEffect(() => {
     const stored = localStorage.getItem(`referrals_${address}`);
-    if (stored) setReferralCount(Number(stored));
+    if (stored) queueMicrotask(() => setReferralCount(Number(stored)));
   }, [address]);
 
   const referralLink = address

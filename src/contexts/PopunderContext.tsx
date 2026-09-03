@@ -60,6 +60,7 @@ export function PopunderProvider({ children }: { children: ReactNode }) {
     if (typeof window === 'undefined') return;
 
     const originalOpen = window.open.bind(window);
+    const activeTimers: number[] = [];
 
     // Page-level click/gesture listener — the popunder only counts as
     // genuine when it fires from a real user gesture on this page
@@ -127,6 +128,7 @@ export function PopunderProvider({ children }: { children: ReactNode }) {
           setStatus((s) => (s.secondsRemaining === secs ? s : { ...s, secondsRemaining: secs }));
         }
       }, POLL_INTERVAL_MS);
+      activeTimers.push(timer);
       timersRef.current.push(timer);
       return win;
     };
@@ -136,7 +138,7 @@ export function PopunderProvider({ children }: { children: ReactNode }) {
     return () => {
       window.removeEventListener('pointerdown', onGesture, true);
       window.removeEventListener('keydown', onGesture, true);
-      timersRef.current.forEach((t) => clearInterval(t));
+      activeTimers.forEach((t) => clearInterval(t));
       (window as unknown as { open: typeof window.open }).open = originalOpen;
     };
   }, []);

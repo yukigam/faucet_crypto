@@ -20,11 +20,9 @@ type UsePtcWatchTimerOptions = {
 };
 
 /**
- * PTC watch countdown that only advances after the Adsterra banner has been
- * clicked during the CURRENT page load, and only while the tab is visible and
- * focused. Each active second is recorded server-side via /api/ptc/watch-tick
- * so rewards cannot complete in the background or resume after a reload
- * without re-clicking the banner.
+ * PTC watch countdown that only advances while the tab is visible and focused.
+ * Each active second is recorded server-side via /api/ptc/watch-tick so rewards
+ * cannot complete in the background.
  */
 export function usePtcWatchTimer({
   token,
@@ -40,15 +38,20 @@ export function usePtcWatchTimer({
   const [pageActive, setPageActive] = useState(true);
   const completeFiredRef = useRef(false);
   const onCompleteRef = useRef(onComplete);
-  onCompleteRef.current = onComplete;
+
+  useEffect(() => {
+    onCompleteRef.current = onComplete;
+  }, [onComplete]);
 
   const resetCompletion = useCallback(() => {
     completeFiredRef.current = false;
   }, []);
 
-  // Re-sync when session data loads from the server
+  // Re-sync when session data loads from the server (deferred to avoid
+  // synchronous setState inside an effect body).
   useEffect(() => {
-    setSecondsLeft(Math.max(0, duration - initialActiveSeconds));
+    const value = Math.max(0, duration - initialActiveSeconds);
+    queueMicrotask(() => setSecondsLeft(value));
   }, [duration, initialActiveSeconds]);
 
   // Pause when the user switches tabs or the window loses focus
@@ -117,10 +120,10 @@ export function usePtcWatchTimer({
     };
   }, [ticking, token]);
 
-  // Progress reflects seconds already accrued (kept across reloads), even
-  // while paused behind the banner gate.
   const progress =
-    duration > 0 ? ((duration - secondsLeft) / duration) * 100 : 0;
+    bannerClicked && duration > 0
+      ? ((duration - secondsLeft) / duration) * 100
+      : 0;
 
   return {
     secondsLeft,

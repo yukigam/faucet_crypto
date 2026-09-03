@@ -127,8 +127,11 @@ export function AdBlockProvider({ children }: { children: ReactNode }) {
 
     const checkBrave = async (): Promise<boolean> => {
       try {
-        if (typeof navigator !== 'undefined' && (navigator as any).brave) {
-          return await (navigator as any).brave.isBrave();
+        if (typeof navigator !== 'undefined') {
+          const nav = navigator as unknown as { brave?: { isBrave: () => Promise<boolean> } };
+          if (nav.brave && typeof nav.brave.isBrave === 'function') {
+            return await nav.brave.isBrave();
+          }
         }
       } catch {
         // ignore

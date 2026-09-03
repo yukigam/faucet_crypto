@@ -3,7 +3,7 @@
 import { useAdBlock } from '@/contexts/AdBlockContext';
 
 export default function BlockerWarning() {
-  const { detected, checking, brave, adblocker } = useAdBlock();
+  const { detected, checking, brave } = useAdBlock();
 
   if (checking || !detected) return null;
 

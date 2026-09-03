@@ -41,18 +41,20 @@ export default function ShortlinkClaim({ address }: { address: string }) {
   useEffect(() => {
     const key = `shortlink_count_${address}`;
     const stored = localStorage.getItem(key);
-    if (stored) {
-      const { date, count } = JSON.parse(stored);
-      const today = new Date().toDateString();
-      if (date === today) {
-        setDailyClaims(count);
-        if (count >= SHORTLINK_DAILY_LIMIT) {
-          setLimitReached(true);
+    queueMicrotask(() => {
+      if (stored) {
+        const { date, count } = JSON.parse(stored);
+        const today = new Date().toDateString();
+        if (date === today) {
+          setDailyClaims(count);
+          if (count >= SHORTLINK_DAILY_LIMIT) {
+            setLimitReached(true);
+          }
+        } else {
+          localStorage.removeItem(key);
         }
-      } else {
-        localStorage.removeItem(key);
       }
-    }
+    });
   }, [address]);
 
   const showMessage = (text: string, type: MessageType) => {

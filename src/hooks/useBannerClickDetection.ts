@@ -10,8 +10,11 @@ export const PTC_BANNER_ATTR = 'data-ptc-adsterra-banner';
  */
 export function useBannerClickDetection(active: boolean, onDetected: () => void) {
   const onDetectedRef = useRef(onDetected);
-  onDetectedRef.current = onDetected;
   const firedRef = useRef(false);
+
+  useEffect(() => {
+    onDetectedRef.current = onDetected;
+  }, [onDetected]);
 
   useEffect(() => {
     if (!active) return;

@@ -49,8 +49,8 @@ export default function PtcPage() {
 
   useEffect(() => {
     if (!address) return;
-    loadAds(address);
-    const onFocus = () => loadAds(address);
+    queueMicrotask(() => loadAds(address));
+    const onFocus = () => queueMicrotask(() => loadAds(address));
     window.addEventListener('focus', onFocus);
     return () => window.removeEventListener('focus', onFocus);
   }, [address, loadAds]);

@@ -23,13 +23,53 @@ function extractShortUrl(raw: unknown): string | null {
 // Defense in depth: never hand the client a redirect URL that isn't the
 // configured shortlink provider. A compromised/misbehaving provider API must
 // not be able to point our users at arbitrary (possibly malicious) hosts.
+//
+// ShrinkMe.io uses multiple short-domains in production depending on region/CDN.
+// Any host outside this set is blocked.
+const SHRINKME_ALLOWED_HOSTS = new Set([
+  'shrinkme.io',
+  'www.shrinkme.io',
+  'shrinkfly.co',
+  'www.shrinkfly.co',
+  'shrink.gs',
+  'www.shrink.gs',
+  'shfly.co',
+  'www.shfly.co',
+  'clk.su',
+  'www.clk.su',
+  'clk.gy',
+  'www.clk.gy',
+  'clk.im',
+  'www.clk.im',
+  'urlshorten.io',
+  'www.urlshorten.io',
+]);
+
+function isShrinkmeHost(host: string): boolean {
+  const h = host.toLowerCase();
+  if (SHRINKME_ALLOWED_HOSTS.has(h)) return true;
+  return (
+    h.endsWith('.shrinkme.io') ||
+    h.endsWith('.shrinkfly.co') ||
+    h.endsWith('.shrink.gs') ||
+    h.endsWith('.shfly.co') ||
+    h.endsWith('.clk.su') ||
+    h.endsWith('.clk.gy') ||
+    h.endsWith('.clk.im')
+  );
+}
+
 function isAllowedShortlinkHost(rawUrl: string): boolean {
+  let href = rawUrl.trim();
+  if (!/^https?:\/\//i.test(href)) href = `https://${href}`;
+  let parsed: URL;
   try {
-    const host = new URL(rawUrl).hostname.toLowerCase();
-    return host === 'shrinkme.io' || host.endsWith('.shrinkme.io');
+    parsed = new URL(href);
   } catch {
     return false;
   }
+  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') return false;
+  return isShrinkmeHost(parsed.hostname);
 }
 
 export async function POST(request: Request) {

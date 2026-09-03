@@ -12,14 +12,14 @@ const STORAGE_KEY = 'faucetpay_address';
 type Tab = 'faucet' | 'shortlink';
 
 export default function Home() {
-  const [address, setAddress] = useState('');
+  const [, setAddress] = useState('');
   const [savedAddress, setSavedAddress] = useState<string | null>(null);
   const [inputValue, setInputValue] = useState('');
   const [activeTab, setActiveTab] = useState<Tab>('faucet');
 
   useEffect(() => {
     const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored) setSavedAddress(stored);
+    if (stored) queueMicrotask(() => setSavedAddress(stored));
   }, []);
 
   const handleStart = (e: React.FormEvent) => {

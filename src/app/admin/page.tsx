@@ -215,10 +215,10 @@ export default function AdminPage() {
 
   useEffect(() => {
     const stored = sessionStorage.getItem(AUTH_KEY);
-    if (stored === 'true') {
-      setAuthed(true);
-    }
-    setChecked(true);
+    queueMicrotask(() => {
+      if (stored === 'true') setAuthed(true);
+      setChecked(true);
+    });
   }, []);
 
   if (!checked) {

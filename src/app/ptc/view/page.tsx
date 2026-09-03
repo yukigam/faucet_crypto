@@ -84,6 +84,7 @@ function ViewAd() {
   const [phase, setPhase] = useState<Phase>('loading');
   const [adInfo, setAdInfo] = useState<AdStatus | null>(null);
   const [bannerClicked, setBannerClicked] = useState(false);
+  const [activeSeconds, setActiveSeconds] = useState(0);
   const [registeringClick, setRegisteringClick] = useState(false);
   const [errorText, setErrorText] = useState('');
   const [tabActive, setTabActive] = useState(true);
@@ -93,15 +94,13 @@ function ViewAd() {
     txid?: string;
     warning?: string;
   } | null>(null);
-  const [activeSeconds, setActiveSeconds] = useState(0);
+  const [captcha, setCaptcha] = useState<CaptchaChallenge | null>(null);
+  const [captchaError, setCaptchaError] = useState('');
   const startedAtRef = useRef<number | null>(null);
   const verifyFiredRef = useRef(false);
   const bannerClickInFlightRef = useRef(false);
   const durationRef = useRef(30);
   const activeSecondsRef = useRef(0);
-
-  const [captcha, setCaptcha] = useState<CaptchaChallenge | null>(null);
-  const [captchaError, setCaptchaError] = useState('');
 
   const duration = adInfo?.duration_seconds ?? 0;
 
@@ -186,34 +185,40 @@ function ViewAd() {
     };
   }, [token]);
 
-  const registerBannerClick = useCallback(async (t: string) => {
-    if (bannerClickInFlightRef.current || bannerClicked) return;
-    bannerClickInFlightRef.current = true;
-    setRegisteringClick(true);
-    try {
-      const res = await fetch('/api/ptc/banner-click', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token: t }),
-      });
-      const data = await res.json();
-      if (res.ok && data.success) {
-        setBannerClicked(true);
-        if (durationRef.current - activeSecondsRef.current <= 0) {
-          onWatchCompleteRef.current();
+  const registerBannerClick = useCallback(
+    async (t: string) => {
+      if (bannerClickInFlightRef.current || bannerClicked) return;
+      bannerClickInFlightRef.current = true;
+      setRegisteringClick(true);
+      try {
+        const res = await fetch('/api/ptc/banner-click', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token: t }),
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+          setBannerClicked(true);
+          activeSecondsRef.current = 0;
+          setActiveSeconds(0);
+          syncRemaining(0);
+          if (durationRef.current - activeSecondsRef.current <= 0) {
+            onWatchCompleteRef.current();
+          }
+        } else {
+          setErrorText(data.error || 'Failed to register banner click.');
+          setPhase('error');
         }
-      } else {
-        setErrorText(data.error || 'Failed to register banner click.');
+      } catch {
+        setErrorText('Network error while registering banner click.');
         setPhase('error');
+      } finally {
+        setRegisteringClick(false);
+        bannerClickInFlightRef.current = false;
       }
-    } catch {
-      setErrorText('Network error while registering banner click.');
-      setPhase('error');
-    } finally {
-      setRegisteringClick(false);
-      bannerClickInFlightRef.current = false;
-    }
-  }, [bannerClicked]);
+    },
+    [bannerClicked, syncRemaining],
+  );
 
   const handleBannerDetected = useCallback(() => {
     if (!token || bannerClicked || phase !== 'watching') return;
@@ -274,7 +279,7 @@ function ViewAd() {
         durationRef.current = adDuration;
         activeSecondsRef.current = watched;
         setActiveSeconds(watched);
-        setBannerClicked(false);
+        setBannerClicked(Boolean(data.watch_started_at));
         setPhase('watching');
       } catch {
         if (!cancelled) {
@@ -403,7 +408,7 @@ function ViewAd() {
                 </div>
               )}
 
-              {/* --- Banner + Timer side-by-side --- */}
+              {/* Banner + Timer side-by-side */}
               <div className="rounded-2xl border-2 border-gray-200 bg-white shadow-inner overflow-hidden">
                 <div
                   className={`flex items-stretch transition-colors duration-300 ${
@@ -414,7 +419,7 @@ function ViewAd() {
                         : 'bg-emerald-500/5'
                   }`}
                 >
-                  {/* Left: Banner ad (centered, prominent) */}
+                  {/* Left: Adsterra banner */}
                   <div className="flex-1 p-4 sm:p-5 flex flex-col items-center justify-center gap-2 border-r border-gray-200">
                     <div className="flex w-full items-center justify-between">
                       <p
@@ -453,7 +458,7 @@ function ViewAd() {
                     )}
                   </div>
 
-                  {/* Right: Live countdown timer, directly beside the banner */}
+                  {/* Right: Live countdown timer directly beside banner */}
                   <div className="w-[140px] shrink-0 flex flex-col items-center justify-center gap-2 bg-gray-950 p-4">
                     <span
                       className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-extrabold uppercase tracking-widest text-white ${
@@ -522,7 +527,7 @@ function ViewAd() {
                   </div>
                 </div>
 
-                {/* Full-width progress under banner+timer */}
+                {/* Full-width progress under combined block */}
                 <div className="h-2 w-full bg-gray-100">
                   <div
                     className={`h-full transition-[width] duration-1000 ease-linear ${

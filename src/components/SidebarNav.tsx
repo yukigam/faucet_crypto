@@ -49,10 +49,10 @@ export default function SidebarNav() {
 
   useEffect(() => {
     if (!address) return;
-    refreshCount(address);
-    const onFocus = () => refreshCount(address);
+    queueMicrotask(() => refreshCount(address));
+    const onFocus = () => queueMicrotask(() => refreshCount(address));
     window.addEventListener('focus', onFocus);
-    const interval = setInterval(() => refreshCount(address), 30_000);
+    const interval = setInterval(() => queueMicrotask(() => refreshCount(address)), 30_000);
     return () => {
       window.removeEventListener('focus', onFocus);
       clearInterval(interval);

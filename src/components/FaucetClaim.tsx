@@ -39,7 +39,7 @@ export default function FaucetClaim({ address }: { address: string }) {
   const [dailyClaims, setDailyClaims] = useState<number | undefined>(undefined);
   // Must mirror v_daily_limit in the Supabase faucet_claim() function —
   // the server is authoritative; these defaults only shape the first render
-  const [dailyLimit, setDailyLimit] = useState<number>(10);
+  const [, setDailyLimit] = useState<number>(10);
   const [bonusClaims, setBonusClaims] = useState<number>(0);
   const [effectiveLimit, setEffectiveLimit] = useState<number>(10);
   const [limitReached, setLimitReached] = useState(false);
@@ -53,20 +53,22 @@ export default function FaucetClaim({ address }: { address: string }) {
 
   useEffect(() => {
     const stored = localStorage.getItem(`cooldown_${address}`);
-    if (stored) {
-      const elapsed = Date.now() - Number(stored);
-      setCountdown(Math.max(0, COOLDOWN_MS - elapsed));
-    }
-
-    const limitDate = localStorage.getItem(`limit_${address}`);
-    if (limitDate) {
-      const today = new Date().toDateString();
-      if (limitDate === today) {
-        setLimitReached(true);
-      } else {
-        localStorage.removeItem(`limit_${address}`);
+    queueMicrotask(() => {
+      if (stored) {
+        const elapsed = Date.now() - Number(stored);
+        setCountdown(Math.max(0, COOLDOWN_MS - elapsed));
       }
-    }
+
+      const limitDate = localStorage.getItem(`limit_${address}`);
+      if (limitDate) {
+        const today = new Date().toDateString();
+        if (limitDate === today) {
+          setLimitReached(true);
+        } else {
+          localStorage.removeItem(`limit_${address}`);
+        }
+      }
+    });
   }, [address]);
 
   useEffect(() => {
