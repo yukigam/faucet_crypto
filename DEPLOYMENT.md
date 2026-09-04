@@ -33,7 +33,9 @@ git push -u origin main
 
 ## Step 3: Add Environment Variables
 
-In Vercel **Settings → Environment Variables**, add these **four** variables:
+In Vercel **Settings → Environment Variables**, add these **seven** variables
+(all required — the faucet claim, shortlink, PTC, captcha, and admin features
+each depend on one):
 
 | Name | Value |
 |------|-------|
@@ -41,8 +43,16 @@ In Vercel **Settings → Environment Variables**, add these **four** variables:
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | `eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5zbWlsc3d2YnF2eHFsa2NjYXRkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQzNjg1MjMsImV4cCI6MjA5OTk0NDUyM30.Hnt1HwGCO2e-b1c8SWKIbDUsyKIgctXmHvuUTt5q3Cs` |
 | `SUPABASE_SERVICE_ROLE_KEY` | Your Supabase **Service Role Key** (Settings → API → service_role key) |
 | `FAUCETPAY_API_KEY` | Your FaucetPay **API Key** (FaucetPay dashboard → API) |
+| `NEXT_PUBLIC_TURNSTILE_SITE_KEY` | Your Cloudflare Turnstile **Site Key** |
+| `TURNSTILE_SECRET_KEY` | Your Cloudflare Turnstile **Secret Key** |
+| `ADMIN_PASSWORD` | Any password you choose for `/admin` |
 
-Set all four to **Preview** and **Production** environments.
+> **Shortlink (bonus) feature:** the **Shortlink tab returns an error until you
+> add `SHRINKME_API_KEY`** (a ShrinkMe.io API token from
+> <https://shrinkme.io/apidocs>). The app keeps showing
+> `ShrinkMe API key not configured` until it is set.
+
+Set all seven to **Preview** and **Production** environments.
 
 ---
 

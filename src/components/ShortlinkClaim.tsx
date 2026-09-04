@@ -43,14 +43,19 @@ export default function ShortlinkClaim({ address }: { address: string }) {
     const stored = localStorage.getItem(key);
     queueMicrotask(() => {
       if (stored) {
-        const { date, count } = JSON.parse(stored);
-        const today = new Date().toDateString();
-        if (date === today) {
-          setDailyClaims(count);
-          if (count >= SHORTLINK_DAILY_LIMIT) {
-            setLimitReached(true);
+        try {
+          const { date, count } = JSON.parse(stored);
+          const today = new Date().toDateString();
+          if (date === today) {
+            setDailyClaims(count);
+            if (count >= SHORTLINK_DAILY_LIMIT) {
+              setLimitReached(true);
+            }
+          } else {
+            localStorage.removeItem(key);
           }
-        } else {
+        } catch {
+          // Corrupted/stale value — treat as no claims and reset
           localStorage.removeItem(key);
         }
       }
