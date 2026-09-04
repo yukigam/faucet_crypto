@@ -471,8 +471,11 @@ BEGIN
     RETURN jsonb_build_object('success', false, 'error', 'session_expired');
   END IF;
 
+  -- First active tick anchors the watch clock (informational)
   IF v_row.watch_started_at IS NULL THEN
-    RETURN jsonb_build_object('success', false, 'error', 'banner_not_clicked');
+    UPDATE public.ptc_views
+    SET watch_started_at = p_now
+    WHERE id = v_row.id;
   END IF;
 
   IF v_row.last_watch_tick_at IS NOT NULL
@@ -502,49 +505,8 @@ BEGIN
 END;
 $$;
 
--- RPC: record Adsterra banner click — starts the server-side watch timer
-CREATE OR REPLACE FUNCTION public.ptc_banner_click(
-  p_token TEXT,
-  p_now TIMESTAMPTZ
-)
-RETURNS jsonb
-LANGUAGE plpgsql
-SECURITY DEFINER SET search_path = ''
-AS $$
-DECLARE
-  v_row RECORD;
-BEGIN
-  SELECT v.*
-  INTO v_row
-  FROM public.ptc_views v
-  WHERE v.token = p_token
-  FOR UPDATE OF v;
-
-  IF NOT FOUND THEN
-    RETURN jsonb_build_object('success', false, 'error', 'invalid_token');
-  END IF;
-
-  IF v_row.status = 'completed' THEN
-    RETURN jsonb_build_object('success', false, 'error', 'already_claimed');
-  END IF;
-
-  IF EXTRACT(EPOCH FROM (p_now - v_row.started_at)) > 600 THEN
-    RETURN jsonb_build_object('success', false, 'error', 'session_expired');
-  END IF;
-
-  IF v_row.watch_started_at IS NULL THEN
-    UPDATE public.ptc_views
-    SET watch_started_at = p_now
-    WHERE id = v_row.id;
-    v_row.watch_started_at := p_now;
-  END IF;
-
-  RETURN jsonb_build_object(
-    'success', true,
-    'watch_started_at', v_row.watch_started_at
-  );
-END;
-$$;
+-- (The former ptc_banner_click RPC was removed: clicking the Adsterra
+-- banner on /ptc/view is optional — see supabase_migration_ptc_direct_watch.sql.)
 
 -- RPC: verify timer completion and credit the reward to balance
 CREATE OR REPLACE FUNCTION public.ptc_verify(
@@ -581,10 +543,6 @@ BEGIN
     UPDATE public.ptc_views SET status = 'completed', completed_at = p_now
     WHERE id = v_row.id AND status = 'pending';
     RETURN jsonb_build_object('success', false, 'error', 'session_expired');
-  END IF;
-
-  IF v_row.watch_started_at IS NULL THEN
-    RETURN jsonb_build_object('success', false, 'error', 'banner_not_clicked');
   END IF;
 
   IF COALESCE(v_row.active_watch_seconds, 0) < v_row.duration_seconds THEN

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-export type PtcWatchPauseReason = 'banner' | 'focus' | null;
+export type PtcWatchPauseReason = 'focus' | null;
 
 function isPageActive(): boolean {
   return !document.hidden && document.hasFocus();
@@ -11,8 +11,6 @@ function isPageActive(): boolean {
 type UsePtcWatchTimerOptions = {
   token: string | null;
   duration: number;
-  /** Banner click registered — watch time may accumulate */
-  bannerClicked: boolean;
   /** Session is in the watching phase */
   enabled: boolean;
   initialActiveSeconds: number;
@@ -20,14 +18,14 @@ type UsePtcWatchTimerOptions = {
 };
 
 /**
- * PTC watch countdown that only advances while the tab is visible and focused.
- * Each active second is recorded server-side via /api/ptc/watch-tick so rewards
- * cannot complete in the background.
+ * PTC watch countdown that only advances while the tab is visible AND the
+ * window has focus. Switching tabs or minimizing pauses it instantly and it
+ * resumes on return. Each active second is recorded server-side via
+ * /api/ptc/watch-tick so rewards cannot complete in the background.
  */
 export function usePtcWatchTimer({
   token,
   duration,
-  bannerClicked,
   enabled,
   initialActiveSeconds,
   onComplete,
@@ -72,14 +70,10 @@ export function usePtcWatchTimer({
     };
   }, [enabled]);
 
-  const pauseReason: PtcWatchPauseReason = !bannerClicked
-    ? 'banner'
-    : !pageActive
-      ? 'focus'
-      : null;
+  const pauseReason: PtcWatchPauseReason = !pageActive ? 'focus' : null;
 
   const ticking =
-    enabled && bannerClicked && pageActive && secondsLeft > 0 && token !== null;
+    enabled && pageActive && secondsLeft > 0 && token !== null;
 
   useEffect(() => {
     if (!ticking || !token) return;
@@ -121,9 +115,7 @@ export function usePtcWatchTimer({
   }, [ticking, token]);
 
   const progress =
-    bannerClicked && duration > 0
-      ? ((duration - secondsLeft) / duration) * 100
-      : 0;
+    duration > 0 ? ((duration - secondsLeft) / duration) * 100 : 0;
 
   return {
     secondsLeft,

@@ -69,7 +69,6 @@ export async function POST(request: Request) {
       const messages: Record<string, string> = {
         invalid_token: 'Invalid ad view session.',
         already_claimed: 'Reward already credited for this session.',
-        banner_not_clicked: 'Click the Adsterra banner ad to start the timer.',
         session_expired: 'View session expired — start the ad again.',
       };
       return NextResponse.json({

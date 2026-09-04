@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
-import { PTC_BANNER_ATTR } from '@/hooks/useBannerClickDetection';
 
 export type BannerConfig = {
   label: string;
@@ -150,13 +149,10 @@ export default function AdSlot({
   slot,
   onAdLoad,
   className,
-  trackPtcBanner,
 }: {
   slot: BannerSlot;
   onAdLoad?: () => void;
   className?: string;
-  /** Marks this slot for PTC banner-click detection on the view page */
-  trackPtcBanner?: boolean;
 }) {
   // `as` widens past the satisfies-narrowed registry (active entries may all
   // be one variant, but commented-out script/image slots must stay valid)
@@ -181,10 +177,7 @@ export default function AdSlot({
   };
 
   return (
-    <div
-      className={`w-full ${className ?? ''}`}
-      {...(trackPtcBanner ? { [PTC_BANNER_ATTR]: '1' } : {})}
-    >
+    <div className={`w-full ${className ?? ''}`}>
       <p className="text-center text-[10px] font-medium uppercase tracking-widest text-gray-400 mb-1">
         {config.label}
       </p>

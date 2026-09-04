@@ -137,7 +137,13 @@ export default function PtcPage() {
 
       <div className="text-center bg-yellow-50 border border-yellow-200 rounded-lg py-2 px-6">
         <p className="text-sm font-semibold text-yellow-800">
-          {ads === null ? 'Loading ads…' : `${availableCount} ad${availableCount !== 1 ? 's' : ''} available today`}
+          {ads === null
+            ? 'Loading ads…'
+            : ads.length === 0
+              ? 'No ads available right now — check back soon'
+              : availableCount > 0
+                ? `${availableCount} of ${ads.length} ads available today`
+                : `All ${ads.length} ads watched today — come back tomorrow!`}
         </p>
         <p className="text-xs text-yellow-600 mt-1">Watch each ad once per day to earn its reward.</p>
       </div>
