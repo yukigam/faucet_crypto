@@ -8,6 +8,9 @@ import AdSlot from '@/components/AdSlot';
 
 const STORAGE_KEY = 'faucetpay_address';
 const CURRENCY = 'TON';
+// Fixed reward every completed PTC ad pays out (matches the seed data and
+// the value shown on the viewing page).
+const PTC_REWARD = 0.00003;
 
 type PtcAd = {
   id: string;
@@ -174,7 +177,7 @@ export default function PtcPage() {
                 <div>
                   <p className="font-semibold text-white text-sm">{ad.title}</p>
                   <p className="text-xs text-gray-400 mt-0.5">
-                    Reward: <span className="font-bold text-green-400">{fmtAmount(ad.reward)} {CURRENCY}</span>
+                    Reward: <span className="font-bold text-green-400">{fmtAmount(PTC_REWARD)} {CURRENCY}</span>
                     {' · '}
                     Watch time: {ad.duration_seconds}s
                   </p>
@@ -193,7 +196,7 @@ export default function PtcPage() {
                         : 'bg-gradient-to-r from-cyan-500 to-blue-500 text-white hover:scale-105 active:scale-95'
                     }`}
                   >
-                    {startingId === ad.id ? 'Opening…' : 'View'}
+                    {startingId === ad.id ? 'Opening…' : 'Visit Now'}
                   </button>
                 )}
               </div>

@@ -5,7 +5,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 export type PtcWatchPauseReason = 'focus' | null;
 
 function isPageActive(): boolean {
-  return !document.hidden && document.hasFocus();
+  return document.visibilityState === 'visible' && document.hasFocus();
 }
 
 type UsePtcWatchTimerOptions = {

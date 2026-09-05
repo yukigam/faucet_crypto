@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import SidebarNav from '@/components/SidebarNav';
 import AdSlot from '@/components/AdSlot';
+import MathCaptcha from '@/components/MathCaptcha';
 import { usePtcWatchTimer } from '@/hooks/usePtcWatchTimer';
 import {
   AlertTriangle,
@@ -12,15 +13,19 @@ import {
   Eye,
   EyeOff,
   Loader2,
+  ShieldQuestion,
   Timer,
   Trophy,
 } from 'lucide-react';
 
 const CURRENCY = 'TON';
+// Fixed reward — every completed PTC ad pays exactly this amount. Displayed
+// in the top bar and shown on the captcha / success screens.
+const PTC_REWARD = 0.00003;
 const VERIFY_GRACE_MS = 10 * 60 * 1000;
 const SUCCESS_REDIRECT_MS = 3000;
 
-type Phase = 'loading' | 'watching' | 'verifying' | 'success' | 'error';
+type Phase = 'loading' | 'watching' | 'captcha' | 'verifying' | 'success' | 'error';
 
 type AdStatus = {
   success: boolean;
@@ -61,7 +66,6 @@ function ViewAd() {
   const {
     secondsLeft,
     isPaused,
-    progress,
     resetCompletion,
     syncRemaining,
   } = usePtcWatchTimer({
@@ -72,9 +76,9 @@ function ViewAd() {
     onComplete: () => onWatchCompleteRef.current(),
   });
 
-  // Direct payout flow: as soon as the timer hits 0 the view session is
-  // verified server-side and the reward is pushed to FaucetPay — no captcha
-  // or other intermediate steps.
+  // Rewards are verified server-side and pushed straight to FaucetPay. Called
+  // only after the user passes the math-captcha gate; a failed payout never
+  // rolls the DB credit back and is surfaced as a warning instead.
   const verifyReward = useCallback(
     async (t: string) => {
       setPhase('verifying');
@@ -119,13 +123,20 @@ function ViewAd() {
     [resetCompletion, syncRemaining],
   );
 
+  // When the watch timer hits 0 we open the captcha gate instead of verifying
+  // immediately; solving it then fires the real verify call which pays out.
   useEffect(() => {
     onWatchCompleteRef.current = () => {
       if (!token || verifyFiredRef.current) return;
       verifyFiredRef.current = true;
-      void verifyReward(token);
+      setPhase('captcha');
     };
-  }, [token, verifyReward]);
+  }, [token]);
+
+  const onCaptchaSolved = useCallback(() => {
+    if (!token || phase !== 'captcha') return;
+    void verifyReward(token);
+  }, [token, phase, verifyReward]);
 
   // Load the view session — the token from /ptc/view?token=... is the single
   // source of truth for ad details and accumulated watch time.
@@ -195,8 +206,52 @@ function ViewAd() {
   }, [phase, router]);
 
   return (
-    <main className="min-h-screen flex flex-col items-center p-6 gap-6 md:pl-64">
-      <SidebarNav />
+    <>
+      {(phase === 'watching' || phase === 'captcha') && (
+        <header className="sticky top-0 z-30 flex items-center justify-between gap-4 border-b border-gray-800 bg-gray-950/85 px-4 py-3 backdrop-blur-md sm:px-6 md:ml-64">
+          <span className="min-w-0 truncate text-sm font-semibold text-gray-300">
+            {adInfo?.title ?? 'PTC Ad'}
+          </span>
+
+          {phase === 'watching' ? (
+            <div
+              className={`flex shrink-0 items-center gap-2 rounded-full border px-4 py-1.5 ${
+                isPaused
+                  ? 'border-amber-500/50 bg-amber-500/10'
+                  : 'border-cyan-500/50 bg-cyan-500/10'
+              }`}
+            >
+              <Timer
+                className={`w-4 h-4 ${isPaused ? 'text-amber-400' : 'text-cyan-400'}`}
+              />
+              <span
+                className={`font-mono text-lg font-black tabular-nums ${
+                  isPaused ? 'text-amber-400' : 'text-white'
+                }`}
+              >
+                {secondsLeft}
+              </span>
+              <span
+                className={`text-[11px] font-semibold uppercase ${
+                  isPaused ? 'text-amber-400/80' : 'text-cyan-300/80'
+                }`}
+              >
+                seconds
+              </span>
+            </div>
+          ) : (
+            <div className="flex shrink-0 items-center gap-2 rounded-full border border-emerald-500/50 bg-emerald-500/10 px-4 py-1.5">
+              <ShieldQuestion className="w-4 h-4 text-emerald-400" />
+              <span className="text-sm font-bold text-emerald-300">
+                Verification required
+              </span>
+            </div>
+          )}
+        </header>
+      )}
+
+      <main className="min-h-screen flex flex-col items-center p-6 gap-6 md:pl-64 pt-8">
+        <SidebarNav />
 
       <div className="w-full max-w-lg rounded-2xl border border-gray-800 bg-gray-900 p-5 sm:p-6 space-y-5">
         <div className="flex items-center justify-between gap-3">
@@ -206,7 +261,7 @@ function ViewAd() {
           {adInfo && phase !== 'loading' && (
             <div className="shrink-0 text-right">
               <p className="text-sm font-extrabold text-green-400">
-                +{fmtAmount(adInfo.reward ?? 0)} {CURRENCY}
+                +{fmtAmount(PTC_REWARD)} {CURRENCY}
               </p>
               <p className="text-[11px] text-gray-500">Watch time: {duration}s</p>
             </div>
@@ -222,59 +277,35 @@ function ViewAd() {
 
         {phase === 'watching' && (
           <>
-            {/* CoinPly-style layout: prominent countdown directly beside the
-                Adsterra banner (timer first on mobile, side-by-side on sm+). */}
-            <div className="flex flex-col-reverse items-stretch gap-4 sm:flex-row sm:items-center">
-              <div className="w-full sm:w-[300px] shrink-0 flex justify-center">
-                <AdSlot slot="ptcView" className="w-full sm:w-[300px]" />
-              </div>
+            {/* Prominent Adsterra display banner — the primary impression for
+                this view session, shown full-width and centered. */}
+            <div className="w-full flex justify-center">
+              <AdSlot slot="ptcView" className="w-full max-w-[300px]" />
+            </div>
 
-              <div className="w-full flex-1 rounded-2xl border border-cyan-500/30 bg-gradient-to-r from-cyan-500/10 to-emerald-500/10 px-5 py-4 text-center">
-                <div className="flex items-center justify-center gap-3">
-                  <Timer
-                    className={`w-6 h-6 ${isPaused ? 'text-amber-400' : 'text-cyan-400'}`}
-                  />
-                  <span
-                    className={`text-4xl font-black tabular-nums ${
-                      isPaused ? 'text-amber-400' : 'text-white'
-                    }`}
-                  >
-                    {secondsLeft}s
-                  </span>
-                </div>
-                <div className="mt-3 h-2 w-full bg-gray-800 rounded-full overflow-hidden">
-                  <div
-                    className={`h-full rounded-full transition-[width] duration-1000 ease-linear ${
-                      isPaused
-                        ? 'bg-amber-400'
-                        : 'bg-gradient-to-r from-cyan-400 to-emerald-400'
-                    }`}
-                    style={{ width: `${progress}%` }}
-                  />
-                </div>
-                <p
-                  className={`mt-2 text-xs font-bold flex items-center justify-center gap-1.5 ${
-                    isPaused ? 'text-amber-400' : 'text-cyan-300'
-                  }`}
-                >
-                  {isPaused ? (
-                    <>
-                      <EyeOff className="w-3.5 h-3.5" />
-                      Timer paused — return to this tab to resume
-                    </>
-                  ) : (
-                    <>
-                      <Eye className="w-3.5 h-3.5" />
-                      Watching ad — keep this tab open and visible
-                    </>
-                  )}
-                </p>
-              </div>
+            <div
+              className={`flex items-center justify-center gap-2 rounded-xl border px-4 py-3 text-sm font-bold ${
+                isPaused
+                  ? 'border-amber-500/40 bg-amber-500/10 text-amber-300'
+                  : 'border-cyan-500/30 bg-cyan-500/10 text-cyan-300'
+              }`}
+            >
+              {isPaused ? (
+                <>
+                  <EyeOff className="w-4 h-4" />
+                  Timer paused — return to this tab to resume
+                </>
+              ) : (
+                <>
+                  <Eye className="w-4 h-4" />
+                  Watching ad — keep this tab open and focused
+                </>
+              )}
             </div>
 
             <p className="text-center text-xs text-gray-500">
-              The timer only counts while this tab is visible and focused —
-              switching tabs or minimizing pauses it instantly.
+              The countdown in the top bar only runs while this tab is visible
+              and focused — switching tabs or minimizing pauses it instantly.
             </p>
           </>
         )}
@@ -358,7 +389,16 @@ function ViewAd() {
       >
         ← Back to PTC Ads
       </Link>
+
+      {phase === 'captcha' && (
+        <MathCaptcha
+          reward={PTC_REWARD}
+          currency={CURRENCY}
+          onSolve={onCaptchaSolved}
+        />
+      )}
     </main>
+    </>
   );
 }
 
