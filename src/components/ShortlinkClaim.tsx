@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import AdBanner from './AdBanner';
 import { usePopunder, AD_VIEW_SECONDS } from '@/contexts/PopunderContext';
 
-const REWARD = '0.0005';
+const REWARD = '0.0002';
 const CURRENCY = 'TON';
 const SHORTLINK_DAILY_LIMIT = 10;
 // Only navigate to domains we trust from the ShrinkMe API response — if the

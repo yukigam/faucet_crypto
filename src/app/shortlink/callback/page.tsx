@@ -33,7 +33,7 @@ function CallbackContent() {
               <div className="text-5xl mb-2">🎉</div>
               <h1 className="text-2xl font-bold text-gray-900">Shortlink Completed!</h1>
               <p className="text-green-600 font-semibold text-lg">
-                +{reward || '0.00005'} TON
+                +{reward || '0.0002'} TON
               </p>
               {dailyClaims && (
                 <p className="text-sm text-gray-500">

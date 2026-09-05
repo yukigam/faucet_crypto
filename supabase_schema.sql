@@ -150,7 +150,7 @@ CREATE TABLE IF NOT EXISTS public.shortlink_claims (
   faucetpay_address TEXT REFERENCES public.claimants(faucetpay_address),
   token TEXT UNIQUE NOT NULL DEFAULT gen_random_uuid()::text,
   status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'completed', 'claimed')),
-  reward NUMERIC DEFAULT 0.0005,
+  reward NUMERIC DEFAULT 0.0002,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   completed_at TIMESTAMPTZ
 );
@@ -211,7 +211,7 @@ BEGIN
   v_token := gen_random_uuid()::text;
 
   INSERT INTO public.shortlink_claims (faucetpay_address, token, status, reward)
-  VALUES (p_address, v_token, 'pending', 0.0005);
+  VALUES (p_address, v_token, 'pending', 0.0002);
 
   RETURN jsonb_build_object(
     'success', true,

@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 
 const SHRINKME_API = 'https://shrinkme.io/api';
-const SHORTLINK_REWARD = '0.0005';
+const SHORTLINK_REWARD = '0.0002';
 
 function extractShortUrl(raw: unknown): string | null {
   if (typeof raw === 'string') return raw;
